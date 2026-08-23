@@ -9,19 +9,25 @@ BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
 
 app = Flask(__name__)
 
+
 @app.route("/")
 def home():
     return "Bale bot is running!"
 
+
 def send_message(chat_id, text):
-    requests.post(
-        f"{BASE_URL}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": text
-        },
-        timeout=20
-    )
+    try:
+        requests.post(
+            f"{BASE_URL}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": text
+            },
+            timeout=20
+        )
+    except Exception as e:
+        print("Send error:", e)
+
 
 def bot_loop():
     offset = 0
@@ -32,31 +38,48 @@ def bot_loop():
                 f"{BASE_URL}/getUpdates",
                 params={
                     "offset": offset,
-                    "timeout": 30
+                    "timeout": 25
                 },
-                timeout=40
-            ).json()
+                timeout=30
+            )
 
-            for update in response.get("result", []):
+            data = response.json()
+
+            for update in data.get("result", []):
                 offset = update["update_id"] + 1
 
-                message = update.get("message", {})
-                chat_id = message.get("chat", {}).get("id")
+                message = update.get("message")
+                if not message:
+                    continue
+
+                chat = message.get("chat", {})
+                chat_id = chat.get("id")
+
                 text = message.get("text", "")
 
-                if chat_id and text == "/start":
+                if text == "/start":
                     send_message(
                         chat_id,
-                        "گروه تولیدی بازرگانی عباسی\n"
-                        "تولید و پخش انواع قطعات خودرو\n\n"
-                        "https://tecnoyadakabbasi.ir"
+                        "سلام 👋\n"
+                        "به ربات گروه تولیدی بازرگانی عباسی خوش آمدید.\n\n"
+                        "برای دریافت اطلاعات محصولات، پیام خود را ارسال کنید."
                     )
 
-        except Exception:
+                elif text:
+                    send_message(
+                        chat_id,
+                        "پیام شما دریافت شد ✅\n"
+                        "به زودی پاسخ داده می‌شود."
+                    )
+
+        except Exception as e:
+            print("Bot error:", e)
             time.sleep(5)
 
-if __name__ == "__main__":
-    threading.Thread(target=bot_loop, daemon=True).start()
 
+threading.Thread(target=bot_loop, daemon=True).start()
+
+
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
