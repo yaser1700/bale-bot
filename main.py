@@ -3,11 +3,16 @@ import time
 import threading
 import requests
 from flask import Flask
+from openpyxl import load_workbook
 
 TOKEN = os.getenv("BALE_TOKEN")
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
 
 app = Flask(__name__)
+
+# =========================
+# PDF ها
+# =========================
 
 PDFS = {
     "📦 سوکت عباسی": "سوکت عباسی.pdf",
@@ -21,8 +26,12 @@ PDFS = {
     "⚙️ جلوبندی": "جلوبندی.pdf",
 }
 
+# =========================
+# ارسال پیام
+# =========================
 
 def send_message(chat_id, text, keyboard=None):
+
     data = {
         "chat_id": chat_id,
         "text": text
@@ -35,93 +44,417 @@ def send_message(chat_id, text, keyboard=None):
         }
 
     try:
-        r = requests.post(
+        response = requests.post(
             f"{BASE_URL}/sendMessage",
             json=data,
             timeout=30
         )
 
-        print("sendMessage:", r.status_code)
+        print("sendMessage:", response.status_code)
 
-        return r
+        return response
 
     except Exception as e:
-        print("sendMessage error:", e)
+
+        print("sendMessage ERROR:", e)
+
         return None
 
 
-def send_pdf(chat_id, pdf_path, caption):
+# =========================
+# ارسال PDF
+# =========================
+
+def send_pdf(chat_id, file_path, caption):
+
     try:
-        with open(pdf_path, "rb") as file:
 
-            files = {
-                "document": (
-                    os.path.basename(pdf_path),
-                    file,
-                    "application/pdf"
-                )
-            }
+        with open(file_path, "rb") as file:
 
-            data = {
-                "chat_id": str(chat_id),
-                "caption": caption
-            }
-
-            r = requests.post(
+            response = requests.post(
                 f"{BASE_URL}/sendDocument",
-                data=data,
-                files=files,
+
+                data={
+                    "chat_id": str(chat_id),
+                    "caption": caption
+                },
+
+                files={
+                    "document": (
+                        os.path.basename(file_path),
+                        file,
+                        "application/pdf"
+                    )
+                },
+
                 timeout=180
             )
 
-        print("sendDocument:", r.status_code)
-        print(r.text[:1000])
+        print(
+            "sendDocument:",
+            response.status_code
+        )
 
-        return r
+        print(
+            response.text[:500]
+        )
+
+        return response
 
     except Exception as e:
-        print("PDF error:", e)
+
+        print(
+            "sendPDF ERROR:",
+            e
+        )
+
         return None
 
+
+# =========================
+# منوی اصلی
+# =========================
 
 def main_menu(chat_id):
 
     keyboard = [
+
         ["📄 دریافت لیست قیمت"],
 
-        ["📦 سوکت عباسی", "🔌 کابل تکنو سبزوار"],
+        ["🔎 جستجوی کالا"],
 
-        ["⚡ وایر عباسی", "🔩 مهره و سنسور"],
+        ["📦 سوکت عباسی",
+         "🔌 کابل تکنو سبزوار"],
 
-        ["💡 قطعات برقی خودرو", "🧩 خارجات و پلیمریجات"],
+        ["⚡ وایر عباسی",
+         "🔩 مهره و سنسور"],
 
-        ["🔌 کابل خودرو سبزوار", "⚙️ شیلنگ خودرو"],
+        ["💡 قطعات برقی خودرو",
+         "🧩 خارجات و پلیمریجات"],
+
+        ["🔌 کابل خودرو سبزوار",
+         "⚙️ شیلنگ خودرو"],
 
         ["⚙️ جلوبندی"]
     ]
 
     send_message(
         chat_id,
-        "📋 گروه مورد نظر را انتخاب کنید:",
+        "📋 گزینه مورد نظر را انتخاب کنید:",
         keyboard
     )
 
 
+# =========================
+# نرمال‌سازی فارسی
+# =========================
+
+def normalize(text):
+
+    text = str(text or "")
+
+    text = text.strip().lower()
+
+    text = text.replace("ي", "ی")
+    text = text.replace("ى", "ی")
+    text = text.replace("ك", "ک")
+
+    text = text.replace(
+        "\u200c",
+        " "
+    )
+
+    return text
+
+
+# =========================
+# فرمت قیمت
+# =========================
+
+def format_price(value):
+
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+
+    try:
+
+        number = float(
+            text.replace(",", "")
+        )
+
+        if number.is_integer():
+
+            return f"{int(number):,}"
+
+    except Exception:
+
+        pass
+
+    return text
+
+
+# =========================
+# جستجوی Excel
+# =========================
+
+def search_excel(query):
+
+    base_dir = os.path.dirname(
+        os.path.abspath(__file__)
+    )
+
+    query = normalize(query)
+
+    results = []
+
+    # همه Excel های موجود در پروژه
+    excel_files = []
+
+    for filename in os.listdir(base_dir):
+
+        if filename.lower().endswith(
+            ".xlsx"
+        ):
+
+            excel_files.append(filename)
+
+
+    for filename in excel_files:
+
+        file_path = os.path.join(
+            base_dir,
+            filename
+        )
+
+        try:
+
+            workbook = load_workbook(
+                file_path,
+                read_only=True,
+                data_only=True
+            )
+
+
+            for sheet in workbook.worksheets:
+
+                for row in sheet.iter_rows(
+                    values_only=True
+                ):
+
+                    values = list(row)
+
+                    if len(values) < 2:
+                        continue
+
+
+                    # ستون اول = کد
+                    code = ""
+
+                    if values[0] is not None:
+
+                        code = str(
+                            values[0]
+                        ).strip()
+
+
+                    # ستون دوم = نام
+                    name = ""
+
+                    if values[1] is not None:
+
+                        name = str(
+                            values[1]
+                        ).strip()
+
+
+                    # ستون سوم = قیمت
+                    price = ""
+
+                    if len(values) >= 3:
+
+                        if values[2] is not None:
+
+                            price = format_price(
+                                values[2]
+                            )
+
+
+                    if not code and not name:
+
+                        continue
+
+
+                    code_search = normalize(
+                        code
+                    )
+
+                    name_search = normalize(
+                        name
+                    )
+
+
+                    # جستجو در کد یا نام
+                    if (
+                        query in code_search
+                        or
+                        query in name_search
+                    ):
+
+                        group = filename
+
+                        if group.startswith(
+                            "لیست_قیمت_"
+                        ):
+
+                            group = group[
+                                len("لیست_قیمت_"):
+                            ]
+
+
+                        if group.endswith(
+                            ".xlsx"
+                        ):
+
+                            group = group[
+                                :-5
+                            ]
+
+
+                        results.append({
+
+                            "code": code,
+
+                            "name": name,
+
+                            "price": price,
+
+                            "group": group
+                        })
+
+
+                        # حداکثر ۲۰ نتیجه
+                        if len(results) >= 20:
+
+                            workbook.close()
+
+                            return results
+
+
+            workbook.close()
+
+
+        except Exception as e:
+
+            print(
+                "Excel ERROR:",
+                filename,
+                e
+            )
+
+
+    return results
+
+
+# =========================
+# ارسال نتایج جستجو
+# =========================
+
+def send_search_results(
+    chat_id,
+    results
+):
+
+    if not results:
+
+        send_message(
+            chat_id,
+            "❌ کالایی با این کد یا نام پیدا نشد."
+        )
+
+        return
+
+
+    message = "🔎 نتایج جستجو:\n\n"
+
+
+    for item in results:
+
+        message += (
+
+            f"📦 کد کالا: "
+            f"{item['code']}\n"
+
+            f"📝 نام کالا: "
+            f"{item['name']}\n"
+
+            f"💰 قیمت: "
+            f"{item['price']} ریال\n"
+
+            f"📁 گروه: "
+            f"{item['group']}\n"
+
+            "────────────────\n"
+        )
+
+
+    # تقسیم پیام‌های طولانی
+    while message:
+
+        part = message[:3500]
+
+
+        if len(message) > 3500:
+
+            position = part.rfind(
+                "\n"
+            )
+
+            if position > 500:
+
+                part = part[:position]
+
+
+        send_message(
+            chat_id,
+            part
+        )
+
+
+        message = message[
+            len(part):
+        ]
+
+
+# =========================
+# پردازش پیام
+# =========================
+
 def process_message(message):
 
-    chat = message.get("chat") or {}
+    chat = message.get(
+        "chat"
+    ) or {}
 
-    chat_id = chat.get("id")
+    chat_id = chat.get(
+        "id"
+    )
 
     text = str(
         message.get("text") or ""
     ).strip()
 
+
     if not chat_id:
+
         return
 
 
-    # /start
+    # =====================
+    # START
+    # =====================
+
     if text == "/start":
 
         send_message(
@@ -132,48 +465,91 @@ def process_message(message):
 
         time.sleep(0.3)
 
-        main_menu(chat_id)
+        main_menu(
+            chat_id
+        )
 
         return
 
 
+    # =====================
     # منوی اصلی
+    # =====================
+
     if text in (
+
         "📄 دریافت لیست قیمت",
+
         "منوی اصلی",
+
         "🔙 منوی اصلی"
+
     ):
 
-        main_menu(chat_id)
+        main_menu(
+            chat_id
+        )
 
         return
 
 
-    # پیدا کردن PDF
-    filename = PDFS.get(text)
+    # =====================
+    # جستجو
+    # =====================
 
-    if filename:
+    if text == "🔎 جستجوی کالا":
+
+        send_message(
+            chat_id,
+
+            "🔎 کد کالا یا بخشی از نام کالا را بفرستید.\n\n"
+
+            "مثال:\n"
+
+            "100158\n\n"
+
+            "یا:\n"
+
+            "کابل دنا"
+        )
+
+        return
+
+
+    # =====================
+    # ارسال PDF
+    # =====================
+
+    if text in PDFS:
 
         base_dir = os.path.dirname(
             os.path.abspath(__file__)
         )
 
+
+        pdf_name = PDFS[text]
+
+
         pdf_path = os.path.join(
             base_dir,
-            filename
+            pdf_name
         )
 
-        print("Selected:", text)
-        print("PDF path:", pdf_path)
-        print("Exists:", os.path.exists(pdf_path))
+
+        print(
+            "PDF:",
+            pdf_path
+        )
 
 
-        if not os.path.exists(pdf_path):
+        if not os.path.exists(
+            pdf_path
+        ):
 
             send_message(
                 chat_id,
-                "❌ فایل PDF این گروه در سرور پیدا نشد.\n\n"
-                f"نام فایل:\n{filename}"
+
+                "❌ فایل PDF این گروه پیدا نشد."
             )
 
             return
@@ -186,40 +562,33 @@ def process_message(message):
 
 
         result = send_pdf(
+
             chat_id,
+
             pdf_path,
+
             f"📄 لیست قیمت {text}"
         )
 
 
-        if result is not None:
+        try:
 
-            try:
+            if (
+                result is not None
+                and
+                result.json().get("ok")
+            ):
 
-                data = result.json()
-
-                if data.get("ok"):
-
-                    send_message(
-                        chat_id,
-                        "✅ لیست قیمت ارسال شد."
-                    )
-
-                    return
-
-                else:
-
-                    print(
-                        "Bale error:",
-                        data
-                    )
-
-            except Exception as e:
-
-                print(
-                    "JSON error:",
-                    e
+                send_message(
+                    chat_id,
+                    "✅ لیست قیمت ارسال شد."
                 )
+
+                return
+
+        except Exception:
+
+            pass
 
 
         send_message(
@@ -230,22 +599,51 @@ def process_message(message):
         return
 
 
-    # گزینه ناشناخته
-    send_message(
-        chat_id,
-        "❓ لطفاً یکی از گزینه‌های منو را انتخاب کنید."
-    )
+    # =====================
+    # جستجوی خودکار
+    # =====================
 
-    main_menu(chat_id)
+    if text:
 
+        send_message(
+            chat_id,
+            "🔎 در حال جستجو..."
+        )
+
+
+        results = search_excel(
+            text
+        )
+
+
+        send_search_results(
+            chat_id,
+            results
+        )
+
+
+        return
+
+
+# =========================
+# حلقه ربات
+# =========================
 
 def bot_loop():
 
     offset = 0
 
-    print("================================")
-    print("BALE PDF BOT STARTED")
-    print("================================")
+    print(
+        "================================"
+    )
+
+    print(
+        "BALE PDF + SEARCH BOT STARTED"
+    )
+
+    print(
+        "================================"
+    )
 
 
     while True:
@@ -253,24 +651,24 @@ def bot_loop():
         try:
 
             response = requests.get(
+
                 f"{BASE_URL}/getUpdates",
+
                 params={
+
                     "offset": offset,
+
                     "timeout": 30
                 },
+
                 timeout=45
-            )
-
-
-            print(
-                "getUpdates:",
-                response.status_code
             )
 
 
             if response.status_code != 200:
 
                 print(
+                    "HTTP ERROR:",
                     response.text
                 )
 
@@ -294,10 +692,13 @@ def bot_loop():
                 continue
 
 
-            for update in data.get(
+            updates = data.get(
                 "result",
                 []
-            ):
+            )
+
+
+            for update in updates:
 
                 offset = (
                     update.get(
@@ -318,6 +719,7 @@ def bot_loop():
                         "NEW MESSAGE:",
                         message
                     )
+
 
                     try:
 
@@ -343,21 +745,38 @@ def bot_loop():
             time.sleep(5)
 
 
+# =========================
+# Render
+# =========================
+
 @app.route("/")
 def home():
 
-    return "Bale PDF Bot is running."
+    return (
+        "Bale PDF + Search Bot "
+        "is running."
+    )
 
+
+# =========================
+# اجرای ربات
+# =========================
 
 if __name__ == "__main__":
 
-    threading.Thread(
+    thread = threading.Thread(
+
         target=bot_loop,
+
         daemon=True
-    ).start()
+    )
+
+
+    thread.start()
 
 
     port = int(
+
         os.environ.get(
             "PORT",
             10000
@@ -366,6 +785,8 @@ if __name__ == "__main__":
 
 
     app.run(
+
         host="0.0.0.0",
+
         port=port
     )
