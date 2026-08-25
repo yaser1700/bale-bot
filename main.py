@@ -8,17 +8,13 @@ from openpyxl import load_workbook
 from urllib.parse import unquote
 
 TOKEN = os.getenv("BALE_TOKEN")
-
-if not TOKEN:
-    print("ERROR: BALE_TOKEN is not set")
-
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}" if TOKEN else ""
 
 app = Flask(__name__)
 
 
 # =========================================================
-# نام گروه‌ها
+# PDF GROUPS
 # =========================================================
 
 PDF_GROUPS = {
@@ -35,20 +31,20 @@ PDF_GROUPS = {
 
 
 # =========================================================
-# فارسی و اعداد
+# NORMALIZE
 # =========================================================
 
 def normalize(text):
 
     text = str(text or "")
 
-    # اعداد فارسی و عربی به انگلیسی
-    digits = str.maketrans(
-        "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩",
-        "01234567890123456789"
+    # اعداد فارسی و عربی
+    text = text.translate(
+        str.maketrans(
+            "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩",
+            "01234567890123456789"
+        )
     )
-
-    text = text.translate(digits)
 
     replacements = {
         "ي": "ی",
@@ -56,14 +52,17 @@ def normalize(text):
         "ك": "ک",
         "ۀ": "ه",
         "ة": "ه",
+        "ؤ": "و",
+        "إ": "ا",
+        "أ": "ا",
         "\u200c": " ",
         "\u200f": "",
         "\u200e": "",
         "%20": " ",
     }
 
-    for a, b in replacements.items():
-        text = text.replace(a, b)
+    for old, new in replacements.items():
+        text = text.replace(old, new)
 
     text = text.lower()
 
@@ -88,7 +87,7 @@ def compact(text):
 
 
 # =========================================================
-# ارسال پیام
+# SEND MESSAGE
 # =========================================================
 
 def send_message(chat_id, text, keyboard=None):
@@ -99,7 +98,6 @@ def send_message(chat_id, text, keyboard=None):
     }
 
     if keyboard:
-
         data["reply_markup"] = {
             "keyboard": keyboard,
             "resize_keyboard": True
@@ -131,7 +129,7 @@ def send_message(chat_id, text, keyboard=None):
 
 
 # =========================================================
-# منوی اصلی
+# MAIN MENU
 # =========================================================
 
 def main_menu(chat_id):
@@ -166,7 +164,7 @@ def main_menu(chat_id):
 
 
 # =========================================================
-# پیدا کردن PDF واقعی
+# FIND PDF
 # =========================================================
 
 def find_pdf(group_name):
@@ -183,9 +181,6 @@ def find_pdf(group_name):
         "LOOKING FOR PDF:",
         group_name
     )
-
-    # همه فایل‌های PDF
-    files = []
 
     try:
 
@@ -206,7 +201,6 @@ def find_pdf(group_name):
         if not filename.lower().endswith(".pdf"):
             continue
 
-        # decode کردن %20 و غیره
         decoded = unquote(filename)
 
         name_without_ext = os.path.splitext(
@@ -217,8 +211,11 @@ def find_pdf(group_name):
             name_without_ext
         )
 
-        # تطبیق گروه
-        if wanted in normalized_name:
+        if (
+            wanted in normalized_name
+            or
+            normalized_name in wanted
+        ):
 
             path = os.path.join(
                 base,
@@ -238,19 +235,11 @@ def find_pdf(group_name):
         group_name
     )
 
-    print(
-        "PDF FILES:",
-        [
-            f for f in files
-            if f.lower().endswith(".pdf")
-        ]
-    )
-
     return None
 
 
 # =========================================================
-# ارسال PDF
+# SEND PDF
 # =========================================================
 
 def send_pdf(
@@ -277,9 +266,7 @@ def send_pdf(
 
                 files={
                     "document": (
-                        os.path.basename(
-                            pdf_path
-                        ),
+                        os.path.basename(pdf_path),
                         file,
                         "application/pdf"
                     )
@@ -288,18 +275,12 @@ def send_pdf(
                 timeout=180
             )
 
-
         print(
             "PDF RESPONSE:",
             response.status_code
         )
 
-        print(
-            response.text[:500]
-        )
-
         return response
-
 
     except Exception as e:
 
@@ -312,7 +293,7 @@ def send_pdf(
 
 
 # =========================================================
-# قیمت
+# PRICE FORMAT
 # =========================================================
 
 def format_price(value):
@@ -320,13 +301,27 @@ def format_price(value):
     if value is None:
         return ""
 
+    if isinstance(value, float):
+
+        if value.is_integer():
+
+            return f"{int(value):,}"
+
+    if isinstance(value, int):
+
+        return f"{value:,}"
+
+
     text = str(value).strip()
+
+    text = text.replace(
+        ",",
+        ""
+    )
 
     try:
 
-        number = float(
-            text.replace(",", "")
-        )
+        number = float(text)
 
         if number.is_integer():
 
@@ -336,62 +331,139 @@ def format_price(value):
 
         pass
 
-    return text
+    return str(value).strip()
 
 
 # =========================================================
-# پیدا کردن کد در متن
+# FIND HEADER COLUMNS
 # =========================================================
 
-def find_code(values):
+def get_columns(row):
 
-    # اولویت با ستون اول
-    if len(values) > 0:
+    columns = {}
 
-        if values[0] is not None:
-
-            text = str(
-                values[0]
-            ).strip()
-
-            if re.search(
-                r"\d{4,}",
-                text
-            ):
-
-                match = re.search(
-                    r"\d{4,}",
-                    text
-                )
-
-                return match.group(0)
-
-
-    # اگر ستون اول کد نبود،
-    # تمام سلول‌ها بررسی می‌شوند
-
-    for value in values:
+    for index, value in enumerate(row):
 
         if value is None:
             continue
 
-        text = str(value)
-
-        match = re.search(
-            r"\d{4,}",
-            text
+        name = normalize(
+            value
         )
 
-        if match:
+        if "گروه" in name:
+            columns["group"] = index
 
-            return match.group(0)
+        elif (
+            "کد کالا" in name
+            or
+            name == "کد"
+            or
+            "شناسه" in name
+        ):
+            columns["code"] = index
 
+        elif (
+            "نام کالا" in name
+            or
+            name == "نام"
+        ):
+            columns["name"] = index
 
-    return ""
+        elif "قیمت" in name:
+            columns["price"] = index
+
+        elif (
+            "توضیحات" in name
+            or
+            "توضیح" in name
+        ):
+            columns["description"] = index
+
+    return columns
 
 
 # =========================================================
-# جستجوی Excel
+# CHECK SEARCH
+# =========================================================
+
+def search_matches(
+    query,
+    code,
+    name,
+    group,
+    description
+):
+
+    q = normalize(query)
+    qc = compact(query)
+
+    if not q:
+        return False
+
+
+    # کل اطلاعات قابل جستجو
+    full_text = " ".join([
+
+        normalize(code),
+        normalize(name),
+        normalize(group),
+        normalize(description)
+
+    ])
+
+
+    full_compact = compact(
+        full_text
+    )
+
+
+    # -----------------------------------------------------
+    # جستجوی مستقیم عبارت
+    # -----------------------------------------------------
+
+    if q in full_text:
+
+        return True
+
+
+    if qc and qc in full_compact:
+
+        return True
+
+
+    # -----------------------------------------------------
+    # جستجوی تک تک کلمات
+    # مثال:
+    # کابل دنا
+    # -----------------------------------------------------
+
+    words = q.split()
+
+    words = [
+        w for w in words
+        if len(w) >= 2
+    ]
+
+
+    if not words:
+
+        return False
+
+
+    # تمام کلمات باید در اطلاعات کالا وجود داشته باشند
+    for word in words:
+
+        if word not in full_text:
+
+            return False
+
+
+    return True
+
+
+# =========================================================
+# SEARCH EXCEL - FINAL
 # =========================================================
 
 def search_excel(query):
@@ -400,37 +472,44 @@ def search_excel(query):
         os.path.abspath(__file__)
     )
 
-    q = normalize(query)
-    qc = compact(query)
+    print(
+        "===================================="
+    )
 
     print(
-        "SEARCH QUERY:",
-        q
+        "SEARCH:",
+        query
+    )
+
+    print(
+        "===================================="
     )
 
 
-    excel_files = []
+    excel_files = [
 
-    for filename in os.listdir(base):
+        filename
 
-        if filename.lower().endswith(".xlsx"):
+        for filename in os.listdir(base)
 
-            if not filename.startswith("~$"):
+        if filename.lower().endswith(
+            ".xlsx"
+        )
 
-                excel_files.append(
-                    filename
-                )
-
-
-    print(
-        "EXCEL FILES:",
-        excel_files
-    )
+        and not filename.startswith(
+            "~$"
+        )
+    ]
 
 
     results = []
+
     seen = set()
 
+
+    # =====================================================
+    # تمام Excelها
+    # =====================================================
 
     for filename in excel_files:
 
@@ -449,150 +528,176 @@ def search_excel(query):
                 read_only=True,
 
                 data_only=True
+
             )
 
 
             for sheet in workbook.worksheets:
 
-                for row in sheet.iter_rows(
-                    values_only=True
+                print(
+                    "SHEET:",
+                    filename,
+                    sheet.title
+                )
+
+
+                # -----------------------------------------
+                # پیدا کردن هدر
+                # -----------------------------------------
+
+                header_row = None
+                columns = None
+
+
+                for row_number, row in enumerate(
+
+                    sheet.iter_rows(
+                        values_only=True
+                    ),
+
+                    start=1
+
                 ):
 
-                    values = list(row)
+                    found_columns = get_columns(
+                        row
+                    )
 
-                    if not values:
+
+                    # فایل جدید 2000 کالا
+                    if (
+                        "code" in found_columns
+                        and
+                        "name" in found_columns
+                        and
+                        "price" in found_columns
+                    ):
+
+                        header_row = row_number
+
+                        columns = found_columns
+
+                        break
+
+
+                # -----------------------------------------
+                # اگر هدر پیدا نشد
+                # -----------------------------------------
+
+                if not columns:
+
+                    print(
+                        "HEADER NOT FOUND:",
+                        filename,
+                        sheet.title
+                    )
+
+                    continue
+
+
+                print(
+                    "COLUMNS:",
+                    columns
+                )
+
+
+                # -----------------------------------------
+                # خواندن کالاها
+                # -----------------------------------------
+
+                for row in sheet.iter_rows(
+
+                    min_row=header_row + 1,
+
+                    values_only=True
+
+                ):
+
+                    if not row:
                         continue
 
 
-                    # تمام سلول‌های ردیف
-                    cells = []
+                    def get_value(key):
 
-                    for value in values:
+                        index = columns.get(
+                            key
+                        )
 
-                        if value is None:
-                            continue
+                        if index is None:
+                            return ""
 
-                        text = str(
-                            value
+                        if index >= len(row):
+                            return ""
+
+                        return str(
+                            row[index] or ""
                         ).strip()
 
-                        if text:
 
-                            cells.append(
-                                text
-                            )
+                    group = get_value(
+                        "group"
+                    )
 
+                    code = get_value(
+                        "code"
+                    )
 
-                    if not cells:
-                        continue
+                    name = get_value(
+                        "name"
+                    )
 
-
-                    # کل ردیف
-                    full_text = " ".join(
-                        cells
+                    description = get_value(
+                        "description"
                     )
 
 
-                    full_normal = normalize(
-                        full_text
+                    price_index = columns.get(
+                        "price"
                     )
 
-                    full_compact = compact(
-                        full_text
-                    )
-
-
-                    # آیا عبارت پیدا شد؟
-                    matched = False
-
-
-                    if q and q in full_normal:
-
-                        matched = True
-
-
-                    if qc and qc in full_compact:
-
-                        matched = True
-
-
-                    if not matched:
-
-                        continue
-
-
-                    # -------------------------
-                    # کد
-                    # -------------------------
-
-                    code = find_code(
-                        values
-                    )
-
-
-                    # -------------------------
-                    # نام
-                    # -------------------------
-
-                    if len(values) >= 2:
-
-                        name = str(
-                            values[1] or ""
-                        ).strip()
-
-                    else:
-
-                        name = ""
-
-
-                    # اگر نام مناسب نبود،
-                    # متن کل ردیف را نگه می‌داریم
-
-                    if not name:
-
-                        name = full_text
-
-
-                    # -------------------------
-                    # قیمت
-                    # -------------------------
 
                     price = ""
 
-                    # معمولاً ستون سوم
-                    if len(values) >= 3:
-
-                        if values[2] is not None:
-
-                            price = format_price(
-                                values[2]
-                            )
-
-
-                    # -------------------------
-                    # گروه
-                    # -------------------------
-
-                    group = filename
-
-                    if group.startswith(
-                        "لیست_قیمت_"
+                    if (
+                        price_index is not None
+                        and
+                        price_index < len(row)
                     ):
 
-                        group = group[
-                            len("لیست_قیمت_"):
-                        ]
+                        price = format_price(
+                            row[price_index]
+                        )
 
-                    if group.endswith(
-                        ".xlsx"
+
+                    # ردیف خالی
+                    if not code and not name:
+                        continue
+
+
+                    # -------------------------------------
+                    # SEARCH
+                    # -------------------------------------
+
+                    if not search_matches(
+
+                        query,
+
+                        code,
+
+                        name,
+
+                        group,
+
+                        description
+
                     ):
 
-                        group = group[:-5]
+                        continue
 
 
-                    # -------------------------
-                    # حذف تکراری
-                    # -------------------------
+                    # -------------------------------------
+                    # جلوگیری از تکرار
+                    # -------------------------------------
 
                     key = (
 
@@ -600,9 +705,9 @@ def search_excel(query):
 
                         normalize(name),
 
-                        price,
+                        normalize(group),
 
-                        normalize(group)
+                        price
 
                     )
 
@@ -612,7 +717,9 @@ def search_excel(query):
                         continue
 
 
-                    seen.add(key)
+                    seen.add(
+                        key
+                    )
 
 
                     results.append({
@@ -623,7 +730,9 @@ def search_excel(query):
 
                         "price": price,
 
-                        "group": group
+                        "group": group,
+
+                        "description": description
 
                     })
 
@@ -636,12 +745,12 @@ def search_excel(query):
             print(
                 "EXCEL ERROR:",
                 filename,
-                e
+                str(e)
             )
 
 
     print(
-        "FOUND:",
+        "TOTAL RESULTS:",
         len(results)
     )
 
@@ -650,7 +759,7 @@ def search_excel(query):
 
 
 # =========================================================
-# ارسال نتایج
+# SEND SEARCH RESULTS
 # =========================================================
 
 def send_results(
@@ -674,7 +783,7 @@ def send_results(
 
         chat_id,
 
-        "🔎 تعداد نتایج: "
+        "🔎 تعداد کالاهای پیدا شده: "
         +
         str(len(results))
     )
@@ -685,25 +794,46 @@ def send_results(
 
     for item in results:
 
+        # واحد قیمت را تومان می‌گذاریم
+        # چون فایل اصلی ۲۰۰۰ کالا قیمت را تومان دارد
+
         block = (
 
-            f"📦 کد کالا: "
-            f"{item['code']}\n"
+            f"📦 کد کالا: {item['code']}\n"
 
-            f"📝 نام کالا: "
-            f"{item['name']}\n"
+            f"📝 نام کالا: {item['name']}\n"
 
-            f"💰 قیمت: "
-            f"{item['price']} ریال\n"
+            f"💰 قیمت: {item['price']} تومان\n"
 
-            f"📁 گروه: "
-            f"{item['group']}\n"
+            f"📁 گروه: {item['group']}\n"
 
             "────────────────\n"
 
         )
 
 
+        # اگر توضیحات وجود داشت
+        if item["description"]:
+
+            block = (
+
+                f"📦 کد کالا: {item['code']}\n"
+
+                f"📝 نام کالا: {item['name']}\n"
+
+                f"💰 قیمت: {item['price']} تومان\n"
+
+                f"📁 گروه: {item['group']}\n"
+
+                f"ℹ️ توضیحات: "
+                f"{item['description']}\n"
+
+                "────────────────\n"
+
+            )
+
+
+        # جلوگیری از بزرگ شدن پیام بله
         if (
             len(message)
             +
@@ -712,10 +842,12 @@ def send_results(
             3500
         ):
 
-            send_message(
-                chat_id,
-                message
-            )
+            if message:
+
+                send_message(
+                    chat_id,
+                    message
+                )
 
             message = block
 
@@ -733,7 +865,7 @@ def send_results(
 
 
 # =========================================================
-# پردازش پیام
+# PROCESS MESSAGE
 # =========================================================
 
 def process_message(message):
@@ -754,7 +886,6 @@ def process_message(message):
 
 
     if not chat_id:
-
         return
 
 
@@ -820,18 +951,23 @@ def process_message(message):
 
             chat_id,
 
-            "🔎 کد کالا یا بخشی از نام کالا را بفرستید.\n\n"
+            "🔎 کد یا نام کالا را ارسال کنید.\n\n"
+
             "مثال:\n"
             "100158\n\n"
+
             "یا:\n"
-            "کابل دنا"
+            "کابل دنا\n\n"
+
+            "یا:\n"
+            "دنا"
         )
 
         return
 
 
     # =====================================================
-    # PDF BUTTON
+    # PDF
     # =====================================================
 
     if text in PDF_GROUPS:
@@ -858,10 +994,7 @@ def process_message(message):
 
                 chat_id,
 
-                "❌ فایل PDF این گروه در مخزن پیدا نشد.\n\n"
-                "گروه: "
-                +
-                group
+                "❌ فایل PDF این گروه پیدا نشد."
             )
 
             return
@@ -891,13 +1024,6 @@ def process_message(message):
 
             ):
 
-                send_message(
-
-                    chat_id,
-
-                    "✅ فایل PDF ارسال شد."
-                )
-
                 return
 
         except Exception:
@@ -909,7 +1035,7 @@ def process_message(message):
 
             chat_id,
 
-            "❌ ارسال PDF ناموفق بود."
+            "❌ ارسال فایل PDF انجام نشد."
         )
 
         return
@@ -941,6 +1067,7 @@ def process_message(message):
             results
         )
 
+
         return
 
 
@@ -952,6 +1079,7 @@ def bot_loop():
 
     offset = 0
 
+
     print(
         "======================================"
     )
@@ -961,7 +1089,7 @@ def bot_loop():
     )
 
     print(
-        "PDF + FULL EXCEL SEARCH"
+        "FINAL SEARCH VERSION"
     )
 
     print(
@@ -986,6 +1114,7 @@ def bot_loop():
                 },
 
                 timeout=45
+
             )
 
 
@@ -1076,9 +1205,7 @@ def bot_loop():
 @app.route("/")
 def home():
 
-    return (
-        "Bale Bot is running."
-    )
+    return "Bale Bot is running."
 
 
 # =========================================================
@@ -1110,4 +1237,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
 
         port=port
+
     )
