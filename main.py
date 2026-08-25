@@ -3,213 +3,97 @@ import time
 import threading
 import requests
 from flask import Flask
-from openpyxl import load_workbook
-
-
-# =========================================================
-# تنظیمات ربات
-# =========================================================
 
 TOKEN = os.getenv("BALE_TOKEN")
-
-if not TOKEN:
-    print("ERROR: BALE_TOKEN is not set!")
-
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
 
 app = Flask(__name__)
 
-
-# =========================================================
-# فایل‌های قیمت
-# =========================================================
-# نام دکمه -> کلمات مورد استفاده برای پیدا کردن فایل
-# اگر اسم فایل کمی متفاوت باشد هم تلاش می‌کند آن را پیدا کند.
-# =========================================================
-
-FILES = {
-    "📦 سوکت عباسی": [
-        "سوکت عباسی"
-    ],
-
-    "🔌 کابل تکنو سبزوار": [
-        "کابل تکنو سبزوار"
-    ],
-
-    "⚡ وایر عباسی": [
-        "وایر عباسی"
-    ],
-
-    "🔩 مهره و سنسور": [
-        "مهره و سنسور"
-    ],
-
-    "💡 قطعات برقی خودرو": [
-        "قطعات برقی خودرو"
-    ],
-
-    "🧩 خارجات و پلیمر جات": [
-        "خارجات",
-        "پلیمر"
-    ],
-
-    "🔌 کابل خودرو سبزوار": [
-        "کابل خودرو سبزوار"
-    ],
-
-    "⚙️ شیلنگ خودرو": [
-        "شیلنگ خودرو"
-    ],
-
-    "⚙️ جلوبندی": [
-        "جلوبندی"
-    ]
+PDFS = {
+    "📦 سوکت عباسی": "سوکت عباسی.pdf",
+    "🔌 کابل تکنو سبزوار": "کابل تکنو سبزوار.pdf",
+    "⚡ وایر عباسی": "وایر عباسی.pdf",
+    "🔩 مهره و سنسور": "مهره و سنسور.pdf",
+    "💡 قطعات برقی خودرو": "قطعات برقی خودرو.pdf",
+    "🧩 خارجات و پلیمریجات": "خارجات و پلیمریجات.pdf",
+    "🔌 کابل خودرو سبزوار": "کابل خودرو سبزوار.pdf",
+    "⚙️ شیلنگ خودرو": "شیلنگ خودرو.pdf",
+    "⚙️ جلوبندی": "جلوبندی.pdf",
 }
 
 
-# =========================================================
-# پیدا کردن فایل
-# =========================================================
-
-def find_file(keywords):
-
-    folder = os.path.dirname(os.path.abspath(__file__))
-
-    try:
-        files = os.listdir(folder)
-    except Exception as e:
-        print("Folder error:", e)
-        return None
-
-    # فقط فایل‌های Excel
-    excel_files = [
-        f for f in files
-        if f.lower().endswith((".xlsx", ".xlsm", ".xltx", ".xltm"))
-    ]
-
-    # جستجوی دقیق‌تر
-    for filename in excel_files:
-
-        name = filename.replace("_", " ").replace("-", " ")
-
-        ok = True
-
-        for keyword in keywords:
-            if keyword not in name:
-                ok = False
-                break
-
-        if ok:
-            return os.path.join(folder, filename)
-
-    # جستجوی ساده‌تر
-    for filename in excel_files:
-
-        name = filename.replace("_", " ").replace("-", " ")
-
-        for keyword in keywords:
-
-            if keyword in name:
-                return os.path.join(folder, filename)
-
-    return None
-
-
-# =========================================================
-# ارسال پیام
-# =========================================================
-
 def send_message(chat_id, text, keyboard=None):
-
     data = {
         "chat_id": chat_id,
         "text": text
     }
 
     if keyboard:
-
         data["reply_markup"] = {
             "keyboard": keyboard,
             "resize_keyboard": True
         }
 
     try:
-
-        response = requests.post(
+        r = requests.post(
             f"{BASE_URL}/sendMessage",
             json=data,
             timeout=30
         )
 
-        print("sendMessage:", response.status_code)
-        print(response.text)
+        print("sendMessage:", r.status_code)
 
-        return response
+        return r
 
     except Exception as e:
-
-        print("Send message error:", e)
-
+        print("sendMessage error:", e)
         return None
 
 
-# =========================================================
-# ارسال فایل
-# =========================================================
-
-def send_document(chat_id, file_path, caption=""):
-
+def send_pdf(chat_id, pdf_path, caption):
     try:
+        with open(pdf_path, "rb") as file:
 
-        with open(file_path, "rb") as file:
+            files = {
+                "document": (
+                    os.path.basename(pdf_path),
+                    file,
+                    "application/pdf"
+                )
+            }
 
             data = {
                 "chat_id": str(chat_id),
                 "caption": caption
             }
 
-            files = {
-                "document": (
-                    os.path.basename(file_path),
-                    file,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            }
-
-            response = requests.post(
+            r = requests.post(
                 f"{BASE_URL}/sendDocument",
                 data=data,
                 files=files,
-                timeout=120
+                timeout=180
             )
 
-        print("sendDocument:", response.status_code)
-        print(response.text)
+        print("sendDocument:", r.status_code)
+        print(r.text[:1000])
 
-        return response
+        return r
 
     except Exception as e:
-
-        print("Send document error:", e)
-
+        print("PDF error:", e)
         return None
 
-
-# =========================================================
-# منوی اصلی
-# =========================================================
 
 def main_menu(chat_id):
 
     keyboard = [
-
         ["📄 دریافت لیست قیمت"],
 
         ["📦 سوکت عباسی", "🔌 کابل تکنو سبزوار"],
 
         ["⚡ وایر عباسی", "🔩 مهره و سنسور"],
 
-        ["💡 قطعات برقی خودرو", "🧩 خارجات و پلیمر جات"],
+        ["💡 قطعات برقی خودرو", "🧩 خارجات و پلیمریجات"],
 
         ["🔌 کابل خودرو سبزوار", "⚙️ شیلنگ خودرو"],
 
@@ -218,118 +102,10 @@ def main_menu(chat_id):
 
     send_message(
         chat_id,
-        "📋 لطفاً گروه مورد نظر را انتخاب کنید:",
+        "📋 گروه مورد نظر را انتخاب کنید:",
         keyboard
     )
 
-
-# =========================================================
-# خواندن Excel
-# =========================================================
-
-def read_excel(path):
-
-    if not os.path.exists(path):
-
-        return "❌ فایل قیمت در سرور پیدا نشد."
-
-    try:
-
-        workbook = load_workbook(
-            path,
-            read_only=True,
-            data_only=True
-        )
-
-        lines = []
-
-        for sheet in workbook.worksheets:
-
-            lines.append(
-                f"📋 {sheet.title}"
-            )
-
-            for row in sheet.iter_rows(values_only=True):
-
-                values = []
-
-                for value in row:
-
-                    if value is None:
-                        values.append("")
-                    else:
-                        values.append(str(value).strip())
-
-                if not any(values):
-                    continue
-
-                line = " | ".join(values)
-
-                lines.append(line)
-
-        workbook.close()
-
-        if not lines:
-
-            return "❌ این فایل خالی است."
-
-        return "\n".join(lines)
-
-    except Exception as e:
-
-        print("Excel error:", e)
-
-        return "❌ خطا در خواندن فایل قیمت."
-
-
-# =========================================================
-# ارسال متن‌های طولانی
-# =========================================================
-
-def send_long(chat_id, text):
-
-    max_length = 3500
-
-    if not text:
-
-        send_message(
-            chat_id,
-            "❌ اطلاعاتی برای نمایش وجود ندارد."
-        )
-
-        return
-
-    if len(text) <= max_length:
-
-        send_message(chat_id, text)
-
-        return
-
-    while text:
-
-        part = text[:max_length]
-
-        if len(text) > max_length:
-
-            position = part.rfind("\n")
-
-            if position > 500:
-
-                part = part[:position]
-
-        send_message(
-            chat_id,
-            part
-        )
-
-        text = text[len(part):]
-
-        time.sleep(0.3)
-
-
-# =========================================================
-# پردازش پیام
-# =========================================================
 
 def process_message(message):
 
@@ -337,29 +113,21 @@ def process_message(message):
 
     chat_id = chat.get("id")
 
-    text = message.get("text")
-
-    if text is None:
-        text = ""
-
-    text = str(text).strip()
+    text = str(
+        message.get("text") or ""
+    ).strip()
 
     if not chat_id:
-
         return
 
 
-    # -----------------------------------------------------
-    # شروع
-    # -----------------------------------------------------
-
+    # /start
     if text == "/start":
 
         send_message(
             chat_id,
             "سلام 👋\n\n"
-            "به ربات تولیدی و بازرگانی عباسی خوش آمدید.\n\n"
-            "برای دریافت اطلاعات محصولات، گزینه مورد نظر را انتخاب کنید."
+            "به ربات تولیدی و بازرگانی عباسی خوش آمدید."
         )
 
         time.sleep(0.3)
@@ -369,13 +137,11 @@ def process_message(message):
         return
 
 
-    # -----------------------------------------------------
     # منوی اصلی
-    # -----------------------------------------------------
-
     if text in (
-        "🔙 منوی اصلی",
-        "منوی اصلی"
+        "📄 دریافت لیست قیمت",
+        "منوی اصلی",
+        "🔙 منوی اصلی"
     ):
 
         main_menu(chat_id)
@@ -383,143 +149,103 @@ def process_message(message):
         return
 
 
-    # -----------------------------------------------------
-    # دریافت لیست قیمت
-    # -----------------------------------------------------
+    # پیدا کردن PDF
+    filename = PDFS.get(text)
 
-    if text == "📄 دریافت لیست قیمت":
+    if filename:
 
-        send_message(
-            chat_id,
-            "📋 لطفاً گروه مورد نظر را انتخاب کنید:"
+        base_dir = os.path.dirname(
+            os.path.abspath(__file__)
         )
 
-        main_menu(chat_id)
-
-        return
-
-
-    # -----------------------------------------------------
-    # بررسی انتخاب محصول
-    # -----------------------------------------------------
-
-    keywords = FILES.get(text)
-
-    if keywords:
-
-        send_message(
-            chat_id,
-            "⏳ در حال آماده‌سازی لیست قیمت..."
+        pdf_path = os.path.join(
+            base_dir,
+            filename
         )
 
-        # پیدا کردن فایل
-        path = find_file(keywords)
+        print("Selected:", text)
+        print("PDF path:", pdf_path)
+        print("Exists:", os.path.exists(pdf_path))
 
-        if not path:
+
+        if not os.path.exists(pdf_path):
 
             send_message(
                 chat_id,
-                "❌ فایل قیمت این گروه در سرور پیدا نشد.\n\n"
-                "لطفاً نام فایل Excel را در GitHub بررسی کنید."
+                "❌ فایل PDF این گروه در سرور پیدا نشد.\n\n"
+                f"نام فایل:\n{filename}"
             )
-
-            main_menu(chat_id)
 
             return
 
 
-        print("FILE FOUND:")
-        print(path)
-
-
-        # -------------------------------------------------
-        # ارسال خود فایل Excel
-        # -------------------------------------------------
-
-        result = send_document(
+        send_message(
             chat_id,
-            path,
-            f"📋 لیست قیمت {text}"
+            "⏳ در حال ارسال لیست قیمت..."
         )
 
 
-        # اگر ارسال فایل موفق نبود
-        if result is None or result.status_code != 200:
-
-            send_message(
-                chat_id,
-                "⚠️ ارسال فایل با مشکل مواجه شد.\n"
-                "در حال ارسال اطلاعات داخل فایل..."
-            )
-
-            # خواندن Excel و ارسال متن
-            content = read_excel(path)
-
-            send_long(
-                chat_id,
-                content
-            )
+        result = send_pdf(
+            chat_id,
+            pdf_path,
+            f"📄 لیست قیمت {text}"
+        )
 
 
-        else:
+        if result is not None:
 
             try:
 
-                result_json = result.json()
+                data = result.json()
 
-                if not result_json.get("ok"):
+                if data.get("ok"):
 
-                    print(
-                        "Bale API error:",
-                        result_json
+                    send_message(
+                        chat_id,
+                        "✅ لیست قیمت ارسال شد."
                     )
 
-                    content = read_excel(path)
+                    return
 
-                    send_long(
-                        chat_id,
-                        content
+                else:
+
+                    print(
+                        "Bale error:",
+                        data
                     )
 
             except Exception as e:
 
-                print("JSON error:", e)
+                print(
+                    "JSON error:",
+                    e
+                )
 
-
-        time.sleep(0.5)
 
         send_message(
             chat_id,
-            "✅ پایان لیست قیمت\n\n"
-            "برای انتخاب گروه دیگر /start را بفرستید."
+            "❌ ارسال PDF انجام نشد."
         )
 
         return
 
 
-    # -----------------------------------------------------
-    # پیام ناشناخته
-    # -----------------------------------------------------
-
+    # گزینه ناشناخته
     send_message(
         chat_id,
-        "❓ گزینه مورد نظر را از منوی زیر انتخاب کنید:"
+        "❓ لطفاً یکی از گزینه‌های منو را انتخاب کنید."
     )
 
     main_menu(chat_id)
 
 
-# =========================================================
-# دریافت پیام‌های بله
-# =========================================================
-
 def bot_loop():
 
     offset = 0
 
-    print("======================================")
-    print("Bale bot started...")
-    print("======================================")
+    print("================================")
+    print("BALE PDF BOT STARTED")
+    print("================================")
 
 
     while True:
@@ -545,7 +271,6 @@ def bot_loop():
             if response.status_code != 200:
 
                 print(
-                    "HTTP error:",
                     response.text
                 )
 
@@ -560,7 +285,7 @@ def bot_loop():
             if not data.get("ok"):
 
                 print(
-                    "API error:",
+                    "API ERROR:",
                     data
                 )
 
@@ -569,87 +294,68 @@ def bot_loop():
                 continue
 
 
-            updates = data.get("result", [])
+            for update in data.get(
+                "result",
+                []
+            ):
+
+                offset = (
+                    update.get(
+                        "update_id",
+                        offset
+                    ) + 1
+                )
 
 
-            for update in updates:
+                message = update.get(
+                    "message"
+                )
 
-                try:
 
-                    update_id = update.get(
-                        "update_id"
+                if message:
+
+                    print(
+                        "NEW MESSAGE:",
+                        message
                     )
 
-                    if update_id is not None:
-
-                        offset = update_id + 1
-
-
-                    message = update.get("message")
-
-
-                    if message:
-
-                        print(
-                            "NEW MESSAGE:",
-                            message
-                        )
+                    try:
 
                         process_message(
                             message
                         )
 
+                    except Exception as e:
 
-                except Exception as e:
-
-                    print(
-                        "Message processing error:",
-                        e
-                    )
+                        print(
+                            "PROCESS ERROR:",
+                            e
+                        )
 
 
         except Exception as e:
 
             print(
-                "Bot loop error:",
+                "BOT LOOP ERROR:",
                 e
             )
 
             time.sleep(5)
 
 
-# =========================================================
-# صفحه اصلی Render
-# =========================================================
-
 @app.route("/")
 def home():
 
-    return "Bale Bot is running."
+    return "Bale PDF Bot is running."
 
-
-# =========================================================
-# Health Check
-# =========================================================
-
-@app.route("/health")
-def health():
-
-    return "OK"
-
-
-# =========================================================
-# اجرای ربات
-# =========================================================
 
 if __name__ == "__main__":
 
-    thread = threading.Thread(
+    threading.Thread(
         target=bot_loop,
         daemon=True
-    )
+    ).start()
 
-    thread.start()
 
     port = int(
         os.environ.get(
@@ -657,6 +363,7 @@ if __name__ == "__main__":
             10000
         )
     )
+
 
     app.run(
         host="0.0.0.0",
