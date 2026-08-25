@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import threading
 import requests
@@ -6,12 +7,12 @@ from flask import Flask
 from openpyxl import load_workbook
 
 TOKEN = os.getenv("BALE_TOKEN")
-BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
+BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}" if TOKEN else ""
 
 app = Flask(__name__)
 
 # =========================
-# PDF ها
+# PDF FILES
 # =========================
 
 PDFS = {
@@ -26,8 +27,9 @@ PDFS = {
     "⚙️ جلوبندی": "جلوبندی.pdf",
 }
 
+
 # =========================
-# ارسال پیام
+# SEND MESSAGE
 # =========================
 
 def send_message(chat_id, text, keyboard=None):
@@ -38,31 +40,39 @@ def send_message(chat_id, text, keyboard=None):
     }
 
     if keyboard:
+
         data["reply_markup"] = {
             "keyboard": keyboard,
             "resize_keyboard": True
         }
 
     try:
+
         response = requests.post(
             f"{BASE_URL}/sendMessage",
             json=data,
             timeout=30
         )
 
-        print("sendMessage:", response.status_code)
+        print(
+            "sendMessage:",
+            response.status_code
+        )
 
         return response
 
     except Exception as e:
 
-        print("sendMessage ERROR:", e)
+        print(
+            "sendMessage ERROR:",
+            e
+        )
 
         return None
 
 
 # =========================
-# ارسال PDF
+# SEND PDF
 # =========================
 
 def send_pdf(chat_id, file_path, caption):
@@ -72,6 +82,7 @@ def send_pdf(chat_id, file_path, caption):
         with open(file_path, "rb") as file:
 
             response = requests.post(
+
                 f"{BASE_URL}/sendDocument",
 
                 data={
@@ -104,7 +115,7 @@ def send_pdf(chat_id, file_path, caption):
     except Exception as e:
 
         print(
-            "sendPDF ERROR:",
+            "PDF ERROR:",
             e
         )
 
@@ -112,7 +123,7 @@ def send_pdf(chat_id, file_path, caption):
 
 
 # =========================
-# منوی اصلی
+# MAIN MENU
 # =========================
 
 def main_menu(chat_id):
@@ -136,6 +147,7 @@ def main_menu(chat_id):
          "⚙️ شیلنگ خودرو"],
 
         ["⚙️ جلوبندی"]
+
     ]
 
     send_message(
@@ -146,7 +158,7 @@ def main_menu(chat_id):
 
 
 # =========================
-# نرمال‌سازی فارسی
+# NORMALIZE PERSIAN
 # =========================
 
 def normalize(text):
@@ -155,25 +167,59 @@ def normalize(text):
 
     text = text.strip().lower()
 
-    text = text.replace("ي", "ی")
-    text = text.replace("ى", "ی")
-    text = text.replace("ك", "ک")
+    replacements = {
 
-    text = text.replace(
-        "\u200c",
-        " "
+        "ي": "ی",
+        "ى": "ی",
+        "ك": "ک",
+        "ۀ": "ه",
+        "ة": "ه",
+
+        "\u200c": " ",
+        "\u200f": "",
+        "\u200e": ""
+
+    }
+
+    for old, new in replacements.items():
+
+        text = text.replace(
+            old,
+            new
+        )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
     )
 
-    return text
+    return text.strip()
 
 
 # =========================
-# فرمت قیمت
+# COMPACT TEXT
+# =========================
+
+def compact(text):
+
+    text = normalize(text)
+
+    return re.sub(
+        r"[\s\-_./]+",
+        "",
+        text
+    )
+
+
+# =========================
+# FORMAT PRICE
 # =========================
 
 def format_price(value):
 
     if value is None:
+
         return ""
 
     text = str(value).strip()
@@ -196,7 +242,7 @@ def format_price(value):
 
 
 # =========================
-# جستجوی Excel
+# SEARCH ALL EXCEL FILES
 # =========================
 
 def search_excel(query):
@@ -205,20 +251,38 @@ def search_excel(query):
         os.path.abspath(__file__)
     )
 
-    query = normalize(query)
+    query_normal = normalize(
+        query
+    )
 
-    results = []
+    query_compact = compact(
+        query
+    )
 
-    # همه Excel های موجود در پروژه
-    excel_files = []
+    exact_results = []
 
-    for filename in os.listdir(base_dir):
+    partial_results = []
+
+
+    # پیدا کردن تمام Excel ها
+    excel_files = [
+
+        filename
+
+        for filename in os.listdir(
+            base_dir
+        )
 
         if filename.lower().endswith(
             ".xlsx"
-        ):
+        )
+    ]
 
-            excel_files.append(filename)
+
+    print(
+        "Excel files:",
+        excel_files
+    )
 
 
     for filename in excel_files:
@@ -228,28 +292,37 @@ def search_excel(query):
             filename
         )
 
+
         try:
 
             workbook = load_workbook(
+
                 file_path,
+
                 read_only=True,
+
                 data_only=True
             )
 
 
-            for sheet in workbook.worksheets:
+            for worksheet in workbook.worksheets:
 
-                for row in sheet.iter_rows(
+                for row in worksheet.iter_rows(
                     values_only=True
                 ):
 
                     values = list(row)
 
+
                     if len(values) < 2:
+
                         continue
 
 
-                    # ستون اول = کد
+                    # -------------------------
+                    # CODE
+                    # -------------------------
+
                     code = ""
 
                     if values[0] is not None:
@@ -259,7 +332,10 @@ def search_excel(query):
                         ).strip()
 
 
-                    # ستون دوم = نام
+                    # -------------------------
+                    # NAME
+                    # -------------------------
+
                     name = ""
 
                     if values[1] is not None:
@@ -269,7 +345,10 @@ def search_excel(query):
                         ).strip()
 
 
-                    # ستون سوم = قیمت
+                    # -------------------------
+                    # PRICE
+                    # -------------------------
+
                     price = ""
 
                     if len(values) >= 3:
@@ -286,60 +365,133 @@ def search_excel(query):
                         continue
 
 
-                    code_search = normalize(
+                    code_normal = normalize(
                         code
                     )
 
-                    name_search = normalize(
+                    name_normal = normalize(
+                        name
+                    )
+
+                    code_compact = compact(
+                        code
+                    )
+
+                    name_compact = compact(
                         name
                     )
 
 
-                    # جستجو در کد یا نام
-                    if (
-                        query in code_search
+                    # -------------------------
+                    # EXACT MATCH
+                    # -------------------------
+
+                    exact = (
+
+                        query_normal == code_normal
+
                         or
-                        query in name_search
+
+                        query_normal == name_normal
+
+                        or
+
+                        (
+                            query_compact
+                            and
+                            query_compact == code_compact
+                        )
+
+                        or
+
+                        (
+                            query_compact
+                            and
+                            query_compact == name_compact
+                        )
+
+                    )
+
+
+                    # -------------------------
+                    # PARTIAL MATCH
+                    # -------------------------
+
+                    partial = (
+
+                        query_normal in code_normal
+
+                        or
+
+                        query_normal in name_normal
+
+                        or
+
+                        (
+                            query_compact
+                            and
+                            query_compact in code_compact
+                        )
+
+                        or
+
+                        (
+                            query_compact
+                            and
+                            query_compact in name_compact
+                        )
+
+                    )
+
+
+                    if not partial:
+
+                        continue
+
+
+                    group = filename
+
+
+                    if group.startswith(
+                        "لیست_قیمت_"
                     ):
 
-                        group = filename
-
-                        if group.startswith(
-                            "لیست_قیمت_"
-                        ):
-
-                            group = group[
-                                len("لیست_قیمت_"):
-                            ]
+                        group = group[
+                            len("لیست_قیمت_"):
+                        ]
 
 
-                        if group.endswith(
-                            ".xlsx"
-                        ):
+                    if group.endswith(
+                        ".xlsx"
+                    ):
 
-                            group = group[
-                                :-5
-                            ]
+                        group = group[:-5]
 
 
-                        results.append({
+                    item = {
 
-                            "code": code,
+                        "code": code,
 
-                            "name": name,
+                        "name": name,
 
-                            "price": price,
+                        "price": price,
 
-                            "group": group
-                        })
+                        "group": group
+
+                    }
 
 
-                        # حداکثر ۲۰ نتیجه
-                        if len(results) >= 20:
+                    if exact:
 
-                            workbook.close()
+                        exact_results.append(
+                            item
+                        )
 
-                            return results
+                    else:
+
+                        partial_results.append(
+                            item
+                        )
 
 
             workbook.close()
@@ -354,11 +506,54 @@ def search_excel(query):
             )
 
 
-    return results
+    # -------------------------
+    # REMOVE DUPLICATES
+    # -------------------------
+
+    all_results = []
+
+    seen = set()
+
+
+    for item in (
+        exact_results +
+        partial_results
+    ):
+
+        key = (
+
+            normalize(
+                item["code"]
+            ),
+
+            normalize(
+                item["name"]
+            ),
+
+            item["price"],
+
+            item["group"]
+
+        )
+
+
+        if key in seen:
+
+            continue
+
+
+        seen.add(key)
+
+        all_results.append(
+            item
+        )
+
+
+    return all_results
 
 
 # =========================
-# ارسال نتایج جستجو
+# SEND SEARCH RESULTS
 # =========================
 
 def send_search_results(
@@ -369,19 +564,30 @@ def send_search_results(
     if not results:
 
         send_message(
+
             chat_id,
+
             "❌ کالایی با این کد یا نام پیدا نشد."
         )
 
         return
 
 
-    message = "🔎 نتایج جستجو:\n\n"
+    send_message(
+
+        chat_id,
+
+        f"🔎 تعداد نتایج پیدا شده: "
+        f"{len(results)}"
+    )
+
+
+    message = ""
 
 
     for item in results:
 
-        message += (
+        block = (
 
             f"📦 کد کالا: "
             f"{item['code']}\n"
@@ -396,39 +602,44 @@ def send_search_results(
             f"{item['group']}\n"
 
             "────────────────\n"
+
         )
 
 
-    # تقسیم پیام‌های طولانی
-    while message:
+        # تقسیم پیام در صورت طولانی شدن
 
-        part = message[:3500]
+        if (
+            len(message)
+            +
+            len(block)
+            >
+            3500
+        ):
+
+            if message:
+
+                send_message(
+                    chat_id,
+                    message
+                )
+
+            message = block
+
+        else:
+
+            message += block
 
 
-        if len(message) > 3500:
-
-            position = part.rfind(
-                "\n"
-            )
-
-            if position > 500:
-
-                part = part[:position]
-
+    if message:
 
         send_message(
             chat_id,
-            part
+            message
         )
 
 
-        message = message[
-            len(part):
-        ]
-
-
 # =========================
-# پردازش پیام
+# PROCESS MESSAGE
 # =========================
 
 def process_message(message):
@@ -437,9 +648,11 @@ def process_message(message):
         "chat"
     ) or {}
 
+
     chat_id = chat.get(
         "id"
     )
+
 
     text = str(
         message.get("text") or ""
@@ -458,22 +671,29 @@ def process_message(message):
     if text == "/start":
 
         send_message(
+
             chat_id,
+
             "سلام 👋\n\n"
             "به ربات تولیدی و بازرگانی عباسی خوش آمدید."
         )
 
-        time.sleep(0.3)
+
+        time.sleep(
+            0.3
+        )
+
 
         main_menu(
             chat_id
         )
 
+
         return
 
 
     # =====================
-    # منوی اصلی
+    # MAIN MENU
     # =====================
 
     if text in (
@@ -494,12 +714,13 @@ def process_message(message):
 
 
     # =====================
-    # جستجو
+    # SEARCH BUTTON
     # =====================
 
     if text == "🔎 جستجوی کالا":
 
         send_message(
+
             chat_id,
 
             "🔎 کد کالا یا بخشی از نام کالا را بفرستید.\n\n"
@@ -517,7 +738,7 @@ def process_message(message):
 
 
     # =====================
-    # ارسال PDF
+    # PDF
     # =====================
 
     if text in PDFS:
@@ -531,13 +752,15 @@ def process_message(message):
 
 
         pdf_path = os.path.join(
+
             base_dir,
+
             pdf_name
         )
 
 
         print(
-            "PDF:",
+            "PDF PATH:",
             pdf_path
         )
 
@@ -547,6 +770,7 @@ def process_message(message):
         ):
 
             send_message(
+
                 chat_id,
 
                 "❌ فایل PDF این گروه پیدا نشد."
@@ -556,7 +780,9 @@ def process_message(message):
 
 
         send_message(
+
             chat_id,
+
             "⏳ در حال ارسال لیست قیمت..."
         )
 
@@ -574,17 +800,26 @@ def process_message(message):
         try:
 
             if (
+
                 result is not None
+
                 and
-                result.json().get("ok")
+
+                result.json().get(
+                    "ok"
+                )
+
             ):
 
                 send_message(
+
                     chat_id,
+
                     "✅ لیست قیمت ارسال شد."
                 )
 
                 return
+
 
         except Exception:
 
@@ -592,22 +827,27 @@ def process_message(message):
 
 
         send_message(
+
             chat_id,
+
             "❌ ارسال PDF انجام نشد."
         )
+
 
         return
 
 
     # =====================
-    # جستجوی خودکار
+    # SEARCH
     # =====================
 
     if text:
 
         send_message(
+
             chat_id,
-            "🔎 در حال جستجو..."
+
+            "🔎 در حال جستجوی کامل..."
         )
 
 
@@ -617,7 +857,9 @@ def process_message(message):
 
 
         send_search_results(
+
             chat_id,
+
             results
         )
 
@@ -626,19 +868,20 @@ def process_message(message):
 
 
 # =========================
-# حلقه ربات
+# BOT LOOP
 # =========================
 
 def bot_loop():
 
     offset = 0
 
+
     print(
         "================================"
     )
 
     print(
-        "BALE PDF + SEARCH BOT STARTED"
+        "BALE PDF + FULL SEARCH BOT"
     )
 
     print(
@@ -659,6 +902,7 @@ def bot_loop():
                     "offset": offset,
 
                     "timeout": 30
+
                 },
 
                 timeout=45
@@ -672,7 +916,11 @@ def bot_loop():
                     response.text
                 )
 
-                time.sleep(5)
+
+                time.sleep(
+                    5
+                )
+
 
                 continue
 
@@ -687,24 +935,29 @@ def bot_loop():
                     data
                 )
 
-                time.sleep(5)
+
+                time.sleep(
+                    5
+                )
+
 
                 continue
 
 
-            updates = data.get(
+            for update in data.get(
                 "result",
                 []
-            )
-
-
-            for update in updates:
+            ):
 
                 offset = (
+
                     update.get(
                         "update_id",
                         offset
-                    ) + 1
+                    )
+
+                    + 1
+
                 )
 
 
@@ -742,24 +995,27 @@ def bot_loop():
                 e
             )
 
-            time.sleep(5)
+
+            time.sleep(
+                5
+            )
 
 
 # =========================
-# Render
+# RENDER
 # =========================
 
 @app.route("/")
 def home():
 
     return (
-        "Bale PDF + Search Bot "
+        "Bale PDF + Full Search Bot "
         "is running."
     )
 
 
 # =========================
-# اجرای ربات
+# RUN
 # =========================
 
 if __name__ == "__main__":
