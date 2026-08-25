@@ -803,7 +803,7 @@ def send_results(
 
             f"📝 نام کالا: {item['name']}\n"
 
-            f"💰 قیمت: {item['price']} تومان\n"
+            f"💰 قیمت: {item['price']} ریال\n"
 
             f"📁 گروه: {item['group']}\n"
 
