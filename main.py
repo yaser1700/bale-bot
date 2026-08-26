@@ -12,6 +12,9 @@ BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}" if TOKEN else ""
 
 app = Flask(__name__)
 
+PHONE = "09377700031"
+WEBSITE = "https://www.tecnoyadakabbasi.ir"
+
 
 # =========================================================
 # PDF GROUPS
@@ -31,14 +34,13 @@ PDF_GROUPS = {
 
 
 # =========================================================
-# NORMALIZE TEXT
+# NORMALIZE
 # =========================================================
 
 def normalize(text):
 
     text = str(text or "")
 
-    # اعداد فارسی و عربی → انگلیسی
     text = text.translate(
         str.maketrans(
             "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩",
@@ -98,6 +100,7 @@ def send_message(chat_id, text, keyboard=None):
     }
 
     if keyboard:
+
         data["reply_markup"] = {
             "keyboard": keyboard,
             "resize_keyboard": True
@@ -135,6 +138,9 @@ def send_message(chat_id, text, keyboard=None):
 def main_menu(chat_id):
 
     keyboard = [
+
+        ["📞 تماس مستقیم",
+         "🌐 ورود به سایت"],
 
         ["📄 دریافت لیست قیمت"],
 
@@ -290,7 +296,7 @@ def send_pdf(
 
 
 # =========================================================
-# PRICE FORMAT
+# PRICE
 # =========================================================
 
 def format_price(value):
@@ -313,7 +319,6 @@ def format_price(value):
 
     text = str(value).strip()
 
-    # حذف جداکننده‌های اضافی
     text = text.replace(
         ",",
         ""
@@ -323,7 +328,6 @@ def format_price(value):
         "٬",
         ""
     )
-
 
     try:
 
@@ -337,12 +341,11 @@ def format_price(value):
 
         pass
 
-
-    return str(value).strip()
+    return text
 
 
 # =========================================================
-# FIND HEADER COLUMNS
+# FIND EXCEL COLUMNS
 # =========================================================
 
 def get_columns(row):
@@ -354,9 +357,7 @@ def get_columns(row):
         if value is None:
             continue
 
-        name = normalize(
-            value
-        )
+        name = normalize(value)
 
 
         if "گروه" in name:
@@ -435,25 +436,24 @@ def search_matches(
     )
 
 
-    # جستجوی عبارت کامل
     if q in full_text:
 
         return True
 
 
-    # جستجوی بدون فاصله
     if qc and qc in full_compact:
 
         return True
 
 
-    # جستجوی کلمه به کلمه
-    words = q.split()
-
     words = [
+
         word
-        for word in words
+
+        for word in q.split()
+
         if len(word) >= 2
+
     ]
 
 
@@ -473,7 +473,7 @@ def search_matches(
 
 
 # =========================================================
-# SEARCH ALL EXCEL FILES
+# SEARCH EXCEL
 # =========================================================
 
 def search_excel(query):
@@ -489,13 +489,10 @@ def search_excel(query):
 
         for filename in os.listdir(base)
 
-        if filename.lower().endswith(
-            ".xlsx"
-        )
+        if filename.lower().endswith(".xlsx")
 
-        and not filename.startswith(
-            "~$"
-        )
+        and not filename.startswith("~$")
+
     ]
 
 
@@ -505,10 +502,6 @@ def search_excel(query):
 
 
     print(
-        "===================================="
-    )
-
-    print(
         "SEARCH:",
         query
     )
@@ -516,10 +509,6 @@ def search_excel(query):
     print(
         "EXCEL FILES:",
         excel_files
-    )
-
-    print(
-        "===================================="
     )
 
 
@@ -547,11 +536,12 @@ def search_excel(query):
             for sheet in workbook.worksheets:
 
                 header_row = None
+
                 columns = None
 
 
                 # -----------------------------------------
-                # پیدا کردن هدر
+                # پیدا کردن عنوان ستون‌ها
                 # -----------------------------------------
 
                 for row_number, row in enumerate(
@@ -564,42 +554,29 @@ def search_excel(query):
 
                 ):
 
-                    found_columns = get_columns(
+                    found = get_columns(
                         row
                     )
 
 
                     if (
-                        "code" in found_columns
+                        "code" in found
                         and
-                        "name" in found_columns
+                        "name" in found
                         and
-                        "price" in found_columns
+                        "price" in found
                     ):
 
                         header_row = row_number
-                        columns = found_columns
+
+                        columns = found
 
                         break
 
 
                 if not columns:
 
-                    print(
-                        "HEADER NOT FOUND:",
-                        filename,
-                        sheet.title
-                    )
-
                     continue
-
-
-                print(
-                    "USING:",
-                    filename,
-                    sheet.title,
-                    columns
-                )
 
 
                 # -----------------------------------------
@@ -624,11 +601,14 @@ def search_excel(query):
                             key
                         )
 
+
                         if index is None:
                             return ""
 
+
                         if index >= len(row):
                             return ""
+
 
                         return str(
                             row[index] or ""
@@ -654,6 +634,7 @@ def search_excel(query):
 
                     price = ""
 
+
                     price_index = columns.get(
                         "price"
                     )
@@ -676,7 +657,7 @@ def search_excel(query):
 
 
                     # -------------------------------------
-                    # SEARCH
+                    # جستجو
                     # -------------------------------------
 
                     if not search_matches(
@@ -696,10 +677,6 @@ def search_excel(query):
                         continue
 
 
-                    # -------------------------------------
-                    # جلوگیری از تکرار
-                    # -------------------------------------
-
                     key = (
 
                         normalize(code),
@@ -718,9 +695,7 @@ def search_excel(query):
                         continue
 
 
-                    seen.add(
-                        key
-                    )
+                    seen.add(key)
 
 
                     results.append({
@@ -746,12 +721,12 @@ def search_excel(query):
             print(
                 "EXCEL ERROR:",
                 filename,
-                str(e)
+                e
             )
 
 
     print(
-        "TOTAL RESULTS:",
+        "RESULTS:",
         len(results)
     )
 
@@ -775,6 +750,7 @@ def send_results(
             chat_id,
 
             "❌ کالایی با این کد یا نام پیدا نشد."
+
         )
 
         return
@@ -787,6 +763,7 @@ def send_results(
         "🔎 تعداد کالاهای پیدا شده: "
         +
         str(len(results))
+
     )
 
 
@@ -797,13 +774,17 @@ def send_results(
 
         block = (
 
-            f"📦 کد کالا: {item['code']}\n"
+            f"📦 کد کالا: "
+            f"{item['code']}\n"
 
-            f"📝 نام کالا: {item['name']}\n"
+            f"📝 نام کالا: "
+            f"{item['name']}\n"
 
-            f"💰 قیمت: {item['price']} ریال\n"
+            f"💰 قیمت: "
+            f"{item['price']} ریال\n"
 
-            f"📁 گروه: {item['group']}\n"
+            f"📁 گروه: "
+            f"{item['group']}\n"
 
         )
 
@@ -814,6 +795,7 @@ def send_results(
 
                 f"ℹ️ توضیحات: "
                 f"{item['description']}\n"
+
             )
 
 
@@ -836,6 +818,7 @@ def send_results(
                     chat_id,
                     message
                 )
+
 
             message = block
 
@@ -881,7 +864,7 @@ def process_message(message):
 
 
     print(
-        "USER:",
+        "USER MESSAGE:",
         text
     )
 
@@ -898,18 +881,16 @@ def process_message(message):
 
             "سلام 👋\n\n"
             "به ربات تولیدی و بازرگانی عباسی خوش آمدید."
-        )
 
+        )
 
         time.sleep(
             0.3
         )
 
-
         main_menu(
             chat_id
         )
-
 
         return
 
@@ -955,13 +936,51 @@ def process_message(message):
 
             "یا:\n"
             "دنا"
+
         )
 
         return
 
 
     # =====================================================
-    # PDF BUTTON
+    # WEBSITE
+    # =====================================================
+
+    if text == "🌐 ورود به سایت":
+
+        send_message(
+
+            chat_id,
+
+            "🌐 ورود مستقیم به سایت:\n\n"
+            "https://www.tecnoyadakabbasi.ir"
+
+        )
+
+        return
+
+
+    # =====================================================
+    # DIRECT CALL
+    # =====================================================
+
+    if text == "📞 تماس مستقیم":
+
+        send_message(
+
+            chat_id,
+
+            "📞 تماس مستقیم با ما:\n\n"
+            "tel:09377700031\n\n"
+            "شماره تماس: ۰۹۳۷۷۷۰۰۰۳۱"
+
+        )
+
+        return
+
+
+    # =====================================================
+    # PDF
     # =====================================================
 
     if text in PDF_GROUPS:
@@ -974,6 +993,7 @@ def process_message(message):
             chat_id,
 
             "⏳ در حال آماده‌سازی فایل PDF..."
+
         )
 
 
@@ -989,6 +1009,7 @@ def process_message(message):
                 chat_id,
 
                 "❌ فایل PDF این گروه پیدا نشد."
+
             )
 
             return
@@ -1001,6 +1022,7 @@ def process_message(message):
             pdf_path,
 
             f"📄 لیست قیمت {group}"
+
         )
 
 
@@ -1031,6 +1053,7 @@ def process_message(message):
             chat_id,
 
             "❌ ارسال فایل PDF انجام نشد."
+
         )
 
         return
@@ -1047,6 +1070,7 @@ def process_message(message):
             chat_id,
 
             "🔎 در حال جستجوی کامل..."
+
         )
 
 
@@ -1060,6 +1084,7 @@ def process_message(message):
             chat_id,
 
             results
+
         )
 
         return
@@ -1083,7 +1108,7 @@ def bot_loop():
     )
 
     print(
-        "SEARCH + PDF"
+        "PDF + SEARCH + WEBSITE + CALL"
     )
 
     print(
@@ -1160,6 +1185,7 @@ def bot_loop():
                     )
 
                     + 1
+
                 )
 
 
@@ -1187,7 +1213,7 @@ def bot_loop():
         except Exception as e:
 
             print(
-                "LOOP ERROR:",
+                "BOT LOOP ERROR:",
                 e
             )
 
@@ -1203,7 +1229,11 @@ def bot_loop():
 @app.route("/")
 def home():
 
-    return "Bale Bot is running - Prices in Rial"
+    return (
+        "Bale Bot is running - "
+        "PDF + Search + Website + Call - "
+        "Prices in Rial"
+    )
 
 
 # =========================================================
@@ -1213,16 +1243,12 @@ def home():
 if __name__ == "__main__":
 
     threading.Thread(
-
         target=bot_loop,
-
         daemon=True
-
     ).start()
 
 
     port = int(
-
         os.environ.get(
             "PORT",
             10000
