@@ -1,14 +1,10 @@
 import os
 import re
-import json
-import time
 import threading
 import requests
-
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from openpyxl import load_workbook
 from urllib.parse import unquote
-from datetime import datetime
 
 
 # =========================================================
@@ -27,19 +23,24 @@ PHONE = "09377700031"
 
 WEBSITE = "https://www.tecnoyadakabbasi.ir"
 
-ADMIN_CHAT_ID = os.getenv(
-    "ADMIN_CHAT_ID",
-    "570728574"
-).strip()
-
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
+# آیدی مدیر
+ADMIN_CHAT_ID = int(
+    os.getenv(
+        "ADMIN_CHAT_ID",
+        "570728574"
+    )
 )
 
-ORDERS_FILE = os.path.join(
-    BASE_DIR,
-    "orders.json"
-)
+# آدرس عمومی Render
+PUBLIC_URL = os.getenv(
+    "WEBHOOK_URL",
+    "https://bale-bot-vqup.onrender.com"
+).rstrip("/")
+
+WEBHOOK_PATH = "/webhook"
+
+WEBHOOK_URL = PUBLIC_URL + WEBHOOK_PATH
+
 
 app = Flask(__name__)
 
@@ -53,8 +54,6 @@ CARTS = {}
 USER_STATES = {}
 
 ORDER_COUNTER = 1000
-
-WEBHOOK_ACTIVE = False
 
 LOCK = threading.RLock()
 
@@ -123,11 +122,12 @@ def normalize(text):
         "\u200c": " ",
         "\u200f": "",
         "\u200e": "",
-
+        "\u202a": "",
+        "\u202b": "",
+        "\u202c": "",
     }
 
     for old, new in replacements.items():
-
         text = text.replace(
             old,
             new
@@ -154,57 +154,51 @@ def compact(text):
 
 
 # =========================================================
-# BALE REQUEST
+# SAFE API REQUEST
 # =========================================================
 
-def bale_post(
+def api_post(
     method,
-    payload=None,
+    data=None,
+    files=None,
     timeout=30
 ):
 
     if not TOKEN:
 
         print(
-            "❌ BALE_TOKEN IS EMPTY"
+            "ERROR: BALE_TOKEN is missing"
         )
 
         return None
 
+    url = f"{BASE_URL}/{method}"
+
     try:
 
         response = requests.post(
-
-            f"{BASE_URL}/{method}",
-
-            json=payload or {},
-
+            url,
+            json=data if files is None else None,
+            data=data if files is not None else None,
+            files=files,
             timeout=timeout
-
         )
 
         print(
-
-            f"BALE {method}:",
-            response.status_code
-
+            "API:",
+            method,
+            response.status_code,
+            response.text[:300]
         )
-
-        if response.status_code != 200:
-
-            print(
-                response.text[:500]
-            )
 
         return response
 
     except Exception as e:
 
         print(
-
-            f"BALE {method} ERROR:",
+            "API ERROR:",
+            method,
             e
-
         )
 
         return None
@@ -226,7 +220,6 @@ def send_message(
         "chat_id": chat_id,
 
         "text": str(text)
-
     }
 
     if keyboard:
@@ -237,7 +230,6 @@ def send_message(
 
                 "inline_keyboard":
                     keyboard
-
             }
 
         else:
@@ -248,14 +240,16 @@ def send_message(
                     keyboard,
 
                 "resize_keyboard":
-                    True
+                    True,
 
+                "one_time_keyboard":
+                    False
             }
 
-    return bale_post(
+    return api_post(
         "sendMessage",
-        data,
-        30
+        data=data,
+        timeout=30
     )
 
 
@@ -271,22 +265,17 @@ def answer_callback(
     if not callback_id:
         return
 
-    bale_post(
-
+    api_post(
         "answerCallbackQuery",
-
-        {
+        data={
 
             "callback_query_id":
                 callback_id,
 
             "text":
                 text
-
         },
-
-        20
-
+        timeout=20
     )
 
 
@@ -301,10 +290,6 @@ def main_menu(chat_id):
         [
             "📞 تماس مستقیم",
             "🌐 ورود به سایت"
-        ],
-
-        [
-            "🆔 آیدی من"
         ],
 
         [
@@ -343,79 +328,24 @@ def main_menu(chat_id):
         [
             "⚙️ جلوبندی"
         ]
-
     ]
 
     send_message(
-
         chat_id,
-
         "📋 گزینه مورد نظر را انتخاب کنید:",
-
         keyboard
-
     )
 
 
 # =========================================================
-# CONTACT / WEBSITE
-# =========================================================
-
-def send_website(chat_id):
-
-    send_message(
-
-        chat_id,
-
-        "🌐 برای ورود مستقیم به سایت روی دکمه زیر بزنید:",
-
-        [[
-
-            {
-                "text":
-                    "🌐 ورود مستقیم به سایت",
-
-                "url":
-                    WEBSITE
-            }
-
-        ]],
-
-        inline=True
-
-    )
-
-
-def send_phone(chat_id):
-
-    send_message(
-
-        chat_id,
-
-        "📞 برای تماس مستقیم روی دکمه زیر بزنید:",
-
-        [[
-
-            {
-                "text":
-                    "📞 تماس با ۰۹۳۷۷۷۰۰۰۳۱",
-
-                "url":
-                    "tel:+989377700031"
-            }
-
-        ]],
-
-        inline=True
-
-    )
-
-
-# =========================================================
-# PDF FIND
+# FIND PDF
 # =========================================================
 
 def find_pdf(group_name):
+
+    base = os.path.dirname(
+        os.path.abspath(__file__)
+    )
 
     wanted = compact(
         group_name
@@ -423,9 +353,7 @@ def find_pdf(group_name):
 
     try:
 
-        files = os.listdir(
-            BASE_DIR
-        )
+        files = os.listdir(base)
 
     except Exception as e:
 
@@ -447,12 +375,12 @@ def find_pdf(group_name):
             filename
         )
 
-        name = os.path.splitext(
+        name_without_ext = os.path.splitext(
             decoded
         )[0]
 
         normalized_name = compact(
-            name
+            name_without_ext
         )
 
         if (
@@ -462,7 +390,7 @@ def find_pdf(group_name):
         ):
 
             return os.path.join(
-                BASE_DIR,
+                base,
                 filename
             )
 
@@ -497,7 +425,6 @@ def send_pdf(
 
                     "caption":
                         caption
-
                 },
 
                 files={
@@ -511,14 +438,17 @@ def send_pdf(
                         file,
 
                         "application/pdf"
-
                     )
-
                 },
 
                 timeout=180
-
             )
+
+        print(
+            "PDF RESPONSE:",
+            response.status_code,
+            response.text[:300]
+        )
 
         return response
 
@@ -541,17 +471,11 @@ def format_price(value):
     if value is None:
         return ""
 
-    if isinstance(
-        value,
-        int
-    ):
+    if isinstance(value, int):
 
         return f"{value:,}"
 
-    if isinstance(
-        value,
-        float
-    ):
+    if isinstance(value, float):
 
         if value.is_integer():
 
@@ -644,23 +568,16 @@ def get_columns(row):
             columns["group"] = index
 
         elif (
-
             "کد کالا" in name
-
             or name == "کد"
-
             or "شناسه" in name
-
         ):
 
             columns["code"] = index
 
         elif (
-
             "نام کالا" in name
-
             or name == "نام"
-
         ):
 
             columns["name"] = index
@@ -670,11 +587,8 @@ def get_columns(row):
             columns["price"] = index
 
         elif (
-
             "توضیحات" in name
-
             or "توضیح" in name
-
         ):
 
             columns["description"] = index
@@ -714,7 +628,6 @@ def search_matches(
         normalize(group),
 
         normalize(description)
-
     ])
 
     full_compact = compact(
@@ -739,18 +652,14 @@ def search_matches(
         for word in q.split()
 
         if len(word) >= 2
-
     ]
 
     if not words:
         return False
 
     return all(
-
         word in full_text
-
         for word in words
-
     )
 
 
@@ -760,30 +669,26 @@ def search_matches(
 
 def search_excel(query):
 
+    base = os.path.dirname(
+        os.path.abspath(__file__)
+    )
+
     try:
 
         excel_files = [
 
             filename
 
-            for filename in os.listdir(
-                BASE_DIR
+            for filename
+            in os.listdir(base)
+
+            if filename.lower().endswith(
+                ".xlsx"
             )
 
-            if (
-
-                filename.lower().endswith(
-                    ".xlsx"
-                )
-
-                and
-
-                not filename.startswith(
-                    "~$"
-                )
-
+            and not filename.startswith(
+                "~$"
             )
-
         ]
 
     except Exception as e:
@@ -807,12 +712,11 @@ def search_excel(query):
     for filename in excel_files:
 
         path = os.path.join(
-
-            BASE_DIR,
-
+            base,
             filename
-
         )
+
+        workbook = None
 
         try:
 
@@ -823,7 +727,6 @@ def search_excel(query):
                 read_only=True,
 
                 data_only=True
-
             )
 
             for sheet in workbook.worksheets:
@@ -832,14 +735,16 @@ def search_excel(query):
 
                 columns = None
 
-                for row_number, row in enumerate(
+                for (
+                    row_number,
+                    row
+                ) in enumerate(
 
                     sheet.iter_rows(
                         values_only=True
                     ),
 
                     start=1
-
                 ):
 
                     found = get_columns(
@@ -847,20 +752,16 @@ def search_excel(query):
                     )
 
                     if (
-
                         "code" in found
-
                         and
-
                         "name" in found
-
                         and
-
                         "price" in found
-
                     ):
 
-                        header_row = row_number
+                        header_row = (
+                            row_number
+                        )
 
                         columns = found
 
@@ -871,10 +772,10 @@ def search_excel(query):
 
                 for row in sheet.iter_rows(
 
-                    min_row=header_row + 1,
+                    min_row=
+                        header_row + 1,
 
                     values_only=True
-
                 ):
 
                     if not row:
@@ -889,7 +790,9 @@ def search_excel(query):
                         if index is None:
                             return ""
 
-                        if index >= len(row):
+                        if index >= len(
+                            row
+                        ):
                             return ""
 
                         return str(
@@ -919,21 +822,15 @@ def search_excel(query):
                     )
 
                     if (
-
                         price_index is not None
-
                         and
-
                         price_index < len(row)
-
                     ):
 
                         price = format_price(
-
                             row[
                                 price_index
                             ]
-
                         )
 
                     if not code and not name:
@@ -950,7 +847,6 @@ def search_excel(query):
                         group,
 
                         description
-
                     ):
 
                         continue
@@ -964,7 +860,6 @@ def search_excel(query):
                         normalize(group),
 
                         price
-
                     )
 
                     if key in seen:
@@ -990,22 +885,25 @@ def search_excel(query):
 
                         "description":
                             description
-
                     })
-
-            workbook.close()
 
         except Exception as e:
 
             print(
-
                 "EXCEL ERROR:",
-
                 filename,
-
                 e
-
             )
+
+        finally:
+
+            try:
+
+                if workbook:
+                    workbook.close()
+
+            except Exception:
+                pass
 
     print(
         "RESULT COUNT:",
@@ -1031,11 +929,11 @@ def send_search_results(
             chat_id,
 
             "❌ کالایی با این کد یا نام پیدا نشد."
-
         )
 
         return
 
+    # ذخیره نتایج
     with LOCK:
 
         USER_STATES[chat_id] = {
@@ -1045,16 +943,13 @@ def send_search_results(
 
             "results":
                 results
-
         }
 
     send_message(
 
         chat_id,
 
-        f"🔎 {len(results)} کالا پیدا شد:\n\n"
-        "برای هر کالا، دکمه ➕ همان کالا را بزنید."
-
+        f"🔎 {len(results)} کالا پیدا شد:"
     )
 
     for index, item in enumerate(
@@ -1074,39 +969,34 @@ def send_search_results(
 
             f"📁 گروه: "
             f"{item['group']}"
-
         )
 
-        if item["description"]:
+        if item.get(
+            "description"
+        ):
 
             message += (
 
                 "\nℹ️ توضیحات: "
 
-                +
-                item["description"]
-
+                + item[
+                    "description"
+                ]
             )
 
         callback_data = (
 
             f"ADD:{chat_id}:{index}"
-
         )
 
-        keyboard = [[
+        keyboard = [[{
 
-            {
+            "text":
+                "➕ افزودن به سبد خرید",
 
-                "text":
-                    "➕ افزودن به سبد خرید",
-
-                "callback_data":
-                    callback_data
-
-            }
-
-        ]]
+            "callback_data":
+                callback_data
+        }]]
 
         send_message(
 
@@ -1117,7 +1007,6 @@ def send_search_results(
             keyboard,
 
             inline=True
-
         )
 
 
@@ -1133,29 +1022,30 @@ def add_to_cart(
 
     with LOCK:
 
-        CARTS.setdefault(
-            chat_id,
-            []
-        )
+        if chat_id not in CARTS:
 
-        cart = CARTS[chat_id]
+            CARTS[chat_id] = []
 
+        cart = CARTS[
+            chat_id
+        ]
+
+        # اول بر اساس کد کالا
         for cart_item in cart:
 
             if (
-
                 cart_item["code"]
-
                 ==
-
                 item["code"]
-
             ):
 
-                cart_item["quantity"] += quantity
+                cart_item[
+                    "quantity"
+                ] += quantity
 
                 return
 
+        # کالای جدید
         cart.append({
 
             "code":
@@ -1171,9 +1061,12 @@ def add_to_cart(
 
             "quantity":
                 quantity
-
         })
 
+
+# =========================================================
+# SHOW CART
+# =========================================================
 
 def show_cart(chat_id):
 
@@ -1193,7 +1086,6 @@ def show_cart(chat_id):
             chat_id,
 
             "🛒 سبد خرید شما خالی است."
-
         )
 
         return
@@ -1209,7 +1101,6 @@ def show_cart(chat_id):
         cart,
 
         start=1
-
     ):
 
         item_total = (
@@ -1219,7 +1110,6 @@ def show_cart(chat_id):
             *
 
             item["quantity"]
-
         )
 
         total += item_total
@@ -1242,26 +1132,31 @@ def show_cart(chat_id):
             f"{item_total:,} ریال\n"
 
             "──────────────\n"
-
         )
 
     message += (
 
         f"\n💰 جمع کل: "
         f"{total:,} ریال"
-
     )
 
     keyboard = [
 
-        ["🧾 ثبت سفارش"],
+        [
+            "🧾 ثبت سفارش"
+        ],
 
-        ["🔎 جستجوی کالا"],
+        [
+            "🗑️ خالی کردن سبد"
+        ],
 
-        ["🗑️ خالی کردن سبد"],
+        [
+            "🔎 جستجوی کالا"
+        ],
 
-        ["🔙 منوی اصلی"]
-
+        [
+            "🔙 منوی اصلی"
+        ]
     ]
 
     send_message(
@@ -1271,9 +1166,12 @@ def show_cart(chat_id):
         message,
 
         keyboard
-
     )
 
+
+# =========================================================
+# CLEAR CART
+# =========================================================
 
 def clear_cart(chat_id):
 
@@ -1291,243 +1189,11 @@ def clear_cart(chat_id):
         chat_id,
 
         "🗑️ سبد خرید خالی شد."
-
     )
 
     main_menu(
         chat_id
     )
-
-
-# =========================================================
-# ORDERS FILE
-# =========================================================
-
-def load_orders():
-
-    global ORDER_COUNTER
-
-    try:
-
-        if not os.path.exists(
-            ORDERS_FILE
-        ):
-
-            return []
-
-        with open(
-
-            ORDERS_FILE,
-
-            "r",
-
-            encoding="utf-8"
-
-        ) as file:
-
-            orders = json.load(
-                file
-            )
-
-        if orders:
-
-            numbers = [
-
-                int(
-                    order.get(
-                        "order_number",
-                        1000
-                    )
-                )
-
-                for order in orders
-
-                if str(
-                    order.get(
-                        "order_number",
-                        ""
-                    )
-                ).isdigit()
-
-            ]
-
-            if numbers:
-
-                ORDER_COUNTER = max(
-                    numbers
-                )
-
-        return orders
-
-    except Exception as e:
-
-        print(
-            "LOAD ORDERS ERROR:",
-            e
-        )
-
-        return []
-
-
-def save_order(order):
-
-    try:
-
-        orders = load_orders()
-
-        orders.append(
-            order
-        )
-
-        temp_file = (
-
-            ORDERS_FILE
-            +
-            ".tmp"
-
-        )
-
-        with open(
-
-            temp_file,
-
-            "w",
-
-            encoding="utf-8"
-
-        ) as file:
-
-            json.dump(
-
-                orders,
-
-                file,
-
-                ensure_ascii=False,
-
-                indent=2
-
-            )
-
-        os.replace(
-
-            temp_file,
-
-            ORDERS_FILE
-
-        )
-
-        print(
-
-            "ORDER SAVED:",
-
-            order["order_number"]
-
-        )
-
-        return True
-
-    except Exception as e:
-
-        print(
-            "SAVE ORDER ERROR:",
-            e
-        )
-
-        return False
-
-
-# =========================================================
-# ADMIN ORDER
-# =========================================================
-
-def send_order_to_admin(
-    order
-):
-
-    if not ADMIN_CHAT_ID:
-
-        print(
-            "❌ ADMIN_CHAT_ID NOT SET"
-        )
-
-        return False
-
-    message = (
-
-        "🚨 سفارش جدید\n\n"
-
-        f"🔢 شماره سفارش: "
-        f"{order['order_number']}\n"
-
-        f"📅 تاریخ: "
-        f"{order['date']}\n\n"
-
-        f"👤 مشتری: "
-        f"{order['name']}\n"
-
-        f"📞 تماس: "
-        f"{order['phone']}\n"
-
-        f"🆔 Chat ID: "
-        f"{order['chat_id']}\n\n"
-
-        "📦 کالاها:\n"
-
-    )
-
-    for item in order["items"]:
-
-        message += (
-
-            f"\n• {item['name']}\n"
-
-            f"کد: {item['code']}\n"
-
-            f"تعداد: {item['quantity']}\n"
-
-            f"قیمت واحد: "
-            f"{item['price']:,} ریال\n"
-
-            f"مبلغ: "
-            f"{item['total']:,} ریال\n"
-
-        )
-
-    message += (
-
-        "\n────────────────\n"
-
-        f"💰 مبلغ کل: "
-        f"{order['total']:,} ریال"
-
-    )
-
-    response = send_message(
-
-        ADMIN_CHAT_ID,
-
-        message
-
-    )
-
-    try:
-
-        return bool(
-
-            response
-
-            and
-
-            response.json().get(
-                "ok"
-            )
-
-        )
-
-    except Exception:
-
-        return False
 
 
 # =========================================================
@@ -1551,20 +1217,20 @@ def start_order(chat_id):
 
             chat_id,
 
-            "🛒 سبد خرید شما خالی است.\n"
-            "ابتدا کالا اضافه کنید."
-
+            "🛒 سبد خرید خالی است.\n"
+            "ابتدا کالا به سبد اضافه کنید."
         )
 
         return
 
     with LOCK:
 
-        USER_STATES[chat_id] = {
+        USER_STATES[
+            chat_id
+        ] = {
 
             "state":
                 "order_name"
-
         }
 
     send_message(
@@ -1573,8 +1239,105 @@ def start_order(chat_id):
 
         "🧾 ثبت سفارش\n\n"
         "لطفاً نام و نام خانوادگی خود را وارد کنید:"
-
     )
+
+
+# =========================================================
+# ADMIN ORDER MESSAGE
+# =========================================================
+
+def send_order_to_admin(
+    order_number,
+    chat_id,
+    name,
+    phone,
+    cart,
+    total
+):
+
+    message = (
+
+        "🔔 سفارش جدید\n\n"
+
+        f"🔢 شماره سفارش: "
+        f"{order_number}\n"
+
+        f"👤 نام مشتری: "
+        f"{name}\n"
+
+        f"📞 شماره تماس: "
+        f"{phone}\n"
+
+        f"🆔 آیدی چت: "
+        f"{chat_id}\n\n"
+
+        "📦 اقلام سفارش:\n"
+    )
+
+    for item in cart:
+
+        item_total = (
+
+            item["price"]
+
+            *
+
+            item["quantity"]
+        )
+
+        message += (
+
+            f"\n• {item['name']}\n"
+
+            f"کد: "
+            f"{item['code']}\n"
+
+            f"تعداد: "
+            f"{item['quantity']}\n"
+
+            f"قیمت واحد: "
+            f"{item['price']:,} ریال\n"
+
+            f"مبلغ: "
+            f"{item_total:,} ریال\n"
+        )
+
+    message += (
+
+        "\n────────────────\n"
+
+        f"💰 مبلغ کل: "
+        f"{total:,} ریال"
+    )
+
+    response = send_message(
+
+        ADMIN_CHAT_ID,
+
+        message
+    )
+
+    if response is None:
+
+        print(
+            "ADMIN MESSAGE FAILED"
+        )
+
+    else:
+
+        try:
+
+            if not response.json().get(
+                "ok"
+            ):
+
+                print(
+                    "ADMIN API ERROR:",
+                    response.text
+                )
+
+        except Exception:
+            pass
 
 
 # =========================================================
@@ -1603,7 +1366,6 @@ def finish_order(
             chat_id,
 
             "❌ سبد خرید خالی است."
-
         )
 
         return
@@ -1614,79 +1376,11 @@ def finish_order(
 
         ORDER_COUNTER += 1
 
-        order_number = ORDER_COUNTER
-
-    items = []
-
-    total = 0
-
-    for item in cart:
-
-        item_total = (
-
-            item["price"]
-
-            *
-
-            item["quantity"]
-
+        order_number = (
+            ORDER_COUNTER
         )
 
-        total += item_total
-
-        items.append({
-
-            "code":
-                item["code"],
-
-            "name":
-                item["name"],
-
-            "price":
-                item["price"],
-
-            "quantity":
-                item["quantity"],
-
-            "total":
-                item_total
-
-        })
-
-    order = {
-
-        "order_number":
-            order_number,
-
-        "date":
-            datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-
-        "chat_id":
-            chat_id,
-
-        "name":
-            name,
-
-        "phone":
-            phone,
-
-        "items":
-            items,
-
-        "total":
-            total
-
-    }
-
-    saved = save_order(
-        order
-    )
-
-    admin_sent = send_order_to_admin(
-        order
-    )
+    total = 0
 
     message = (
 
@@ -1702,22 +1396,33 @@ def finish_order(
         f"{phone}\n\n"
 
         "📦 اقلام سفارش:\n"
-
     )
 
-    for item in items:
+    for item in cart:
+
+        item_total = (
+
+            item["price"]
+
+            *
+
+            item["quantity"]
+        )
+
+        total += item_total
 
         message += (
 
             f"\n• {item['name']}\n"
 
-            f"کد: {item['code']}\n"
+            f"کد: "
+            f"{item['code']}\n"
 
-            f"تعداد: {item['quantity']}\n"
+            f"تعداد: "
+            f"{item['quantity']}\n"
 
             f"مبلغ: "
-            f"{item['total']:,} ریال\n"
-
+            f"{item_total:,} ریال\n"
         )
 
     message += (
@@ -1729,29 +1434,42 @@ def finish_order(
 
         "📞 جهت پیگیری:\n"
         "۰۹۳۷۷۷۰۰۰۳۱"
-
     )
 
+    # ابتدا برای مشتری
     send_message(
 
         chat_id,
 
         message
-
     )
 
-    if not admin_sent:
+    # سپس برای مدیر
+    try:
 
-        print(
-            "⚠️ ADMIN ORDER SEND FAILED"
+        send_order_to_admin(
+
+            order_number,
+
+            chat_id,
+
+            name,
+
+            phone,
+
+            cart,
+
+            total
         )
 
-    if not saved:
+    except Exception as e:
 
         print(
-            "⚠️ ORDER FILE SAVE FAILED"
+            "ADMIN ORDER ERROR:",
+            e
         )
 
+    # پاک کردن سبد
     with LOCK:
 
         CARTS[chat_id] = []
@@ -1781,8 +1499,7 @@ def process_callback(
     data = str(
         callback.get(
             "data"
-        )
-        or ""
+        ) or ""
     )
 
     message = (
@@ -1806,159 +1523,157 @@ def process_callback(
     if not chat_id:
 
         answer_callback(
+
             callback_id,
-            "خطا"
+
+            "خطا در شناسایی کاربر"
         )
 
         return
 
-    if not data.startswith(
+    # =====================================================
+    # ADD PRODUCT
+    # =====================================================
+
+    if data.startswith(
         "ADD:"
     ):
 
-        answer_callback(
-            callback_id
+        parts = data.split(
+            ":"
         )
 
-        return
+        if len(parts) != 3:
 
-    parts = data.split(
-        ":"
-    )
+            answer_callback(
 
-    if len(parts) != 3:
+                callback_id,
 
-        answer_callback(
+                "خطا در انتخاب کالا"
+            )
 
-            callback_id,
+            return
 
-            "خطا در انتخاب کالا"
+        try:
 
-        )
+            result_chat_id = int(
+                parts[1]
+            )
 
-        return
+            index = int(
+                parts[2]
+            )
 
-    try:
+        except Exception:
 
-        result_chat_id = int(
-            parts[1]
-        )
+            answer_callback(
 
-        index = int(
-            parts[2]
-        )
+                callback_id,
 
-    except Exception:
+                "خطا در انتخاب کالا"
+            )
 
-        answer_callback(
+            return
 
-            callback_id,
-
-            "خطا در انتخاب کالا"
-
-        )
-
-        return
-
-    if result_chat_id != chat_id:
-
-        answer_callback(
-
-            callback_id,
-
-            "این دکمه برای کاربر دیگری است."
-
-        )
-
-        return
-
-    with LOCK:
-
-        state_data = USER_STATES.get(
+        if (
+            result_chat_id
+            !=
             chat_id
-        )
+        ):
 
-    if not state_data:
+            answer_callback(
 
+                callback_id,
+
+                "این دکمه برای این کاربر نیست."
+            )
+
+            return
+
+        with LOCK:
+
+            state_data = USER_STATES.get(
+                chat_id
+            )
+
+            if not state_data:
+
+                answer_callback(
+
+                    callback_id,
+
+                    "نتایج جستجو منقضی شده است."
+                )
+
+                return
+
+            results = state_data.get(
+                "results",
+                []
+            )
+
+            if (
+                index < 0
+                or
+                index >= len(results)
+            ):
+
+                answer_callback(
+
+                    callback_id,
+
+                    "کالا پیدا نشد."
+                )
+
+                return
+
+            item = results[
+                index
+            ]
+
+            USER_STATES[
+                chat_id
+            ] = {
+
+                "state":
+                    "quantity",
+
+                "item":
+                    item
+            }
+
+        # پاسخ سریع به Bale
         answer_callback(
 
             callback_id,
 
-            "نتایج جستجو منقضی شده است."
+            "کالا انتخاب شد ✅"
+        )
 
+        send_message(
+
+            chat_id,
+
+            f"📦 {item['name']}\n\n"
+
+            f"🔢 کد کالا: "
+            f"{item['code']}\n"
+
+            f"💰 قیمت: "
+            f"{item['price']} ریال\n\n"
+
+            "🔢 تعداد مورد نظر را وارد کنید:"
         )
 
         return
-
-    results = state_data.get(
-        "results",
-        []
-    )
-
-    if (
-
-        index < 0
-
-        or
-
-        index >= len(results)
-
-    ):
-
-        answer_callback(
-
-            callback_id,
-
-            "کالا پیدا نشد."
-
-        )
-
-        return
-
-    item = results[index]
-
-    with LOCK:
-
-        USER_STATES[chat_id] = {
-
-            "state":
-                "quantity",
-
-            "item":
-                item,
-
-            "results":
-                results
-
-        }
 
     answer_callback(
-
-        callback_id,
-
-        "کالا انتخاب شد ✅"
-
-    )
-
-    send_message(
-
-        chat_id,
-
-        f"📦 {item['name']}\n\n"
-
-        f"🔢 کد کالا: "
-        f"{item['code']}\n"
-
-        f"💰 قیمت: "
-        f"{item['price']} ریال\n\n"
-
-        "🔢 تعداد مورد نظر را وارد کنید:"
-
+        callback_id
     )
 
 
 # =========================================================
-# MESSAGE PROCESS
+# PROCESS MESSAGE
 # =========================================================
 
 def process_message(
@@ -1987,13 +1702,9 @@ def process_message(
         return
 
     print(
-
         "USER MESSAGE:",
-
         chat_id,
-
         text
-
     )
 
     # =====================================================
@@ -2020,36 +1731,10 @@ def process_message(
 
             "سلام 👋\n\n"
             "به ربات تولیدی و بازرگانی عباسی خوش آمدید."
-
         )
 
         main_menu(
             chat_id
-        )
-
-        return
-
-    # =====================================================
-    # MY ID
-    # =====================================================
-
-    if text in (
-
-        "🆔 آیدی من",
-
-        "/myid"
-
-    ):
-
-        send_message(
-
-            chat_id,
-
-            "🆔 آیدی عددی شما:\n\n"
-            f"{chat_id}\n\n"
-            "برای تنظیم دریافت سفارش‌ها:\n"
-            "ADMIN_CHAT_ID"
-
         )
 
         return
@@ -2060,20 +1745,29 @@ def process_message(
 
     if text == "🌐 ورود به سایت":
 
-        send_website(
-            chat_id
+        send_message(
+
+            chat_id,
+
+            "🌐 ورود مستقیم به سایت:\n\n"
+            + WEBSITE
         )
 
         return
 
     # =====================================================
-    # PHONE
+    # CALL
     # =====================================================
 
     if text == "📞 تماس مستقیم":
 
-        send_phone(
-            chat_id
+        send_message(
+
+            chat_id,
+
+            "📞 تماس مستقیم:\n\n"
+            "۰۹۳۷۷۷۰۰۰۳۱\n\n"
+            "برای تماس روی شماره بالا بزنید."
         )
 
         return
@@ -2083,11 +1777,8 @@ def process_message(
     # =====================================================
 
     if text in (
-
         "🔙 منوی اصلی",
-
         "منوی اصلی"
-
     ):
 
         with LOCK:
@@ -2104,18 +1795,19 @@ def process_message(
         return
 
     # =====================================================
-    # SEARCH BUTTON
+    # SEARCH
     # =====================================================
 
     if text == "🔎 جستجوی کالا":
 
         with LOCK:
 
-            USER_STATES[chat_id] = {
+            USER_STATES[
+                chat_id
+            ] = {
 
                 "state":
                     "search"
-
             }
 
         send_message(
@@ -2127,7 +1819,6 @@ def process_message(
             "100158\n\n"
             "یا:\n"
             "کابل دنا"
-
         )
 
         return
@@ -2185,6 +1876,12 @@ def process_message(
             chat_id
         )
 
+        if state_data:
+
+            state_data = dict(
+                state_data
+            )
+
     if state_data:
 
         state = state_data.get(
@@ -2192,7 +1889,50 @@ def process_message(
         )
 
         # -------------------------------------------------
-        # NAME
+        # SEARCH
+        # -------------------------------------------------
+
+        if state == "search":
+
+            send_message(
+
+                chat_id,
+
+                "⏳ در حال جستجوی کالا..."
+            )
+
+            try:
+
+                results = search_excel(
+                    text
+                )
+
+                send_search_results(
+
+                    chat_id,
+
+                    results
+                )
+
+            except Exception as e:
+
+                print(
+                    "SEARCH ERROR:",
+                    e
+                )
+
+                send_message(
+
+                    chat_id,
+
+                    "❌ هنگام جستجو خطایی رخ داد.\n"
+                    "لطفاً دوباره امتحان کنید."
+                )
+
+            return
+
+        # -------------------------------------------------
+        # ORDER NAME
         # -------------------------------------------------
 
         if state == "order_name":
@@ -2204,16 +1944,19 @@ def process_message(
                     chat_id,
 
                     "❌ نام را وارد کنید."
-
                 )
 
                 return
 
             with LOCK:
 
-                state_data["name"] = text
+                USER_STATES[
+                    chat_id
+                ]["name"] = text
 
-                state_data["state"] = (
+                USER_STATES[
+                    chat_id
+                ]["state"] = (
                     "order_phone"
                 )
 
@@ -2222,13 +1965,12 @@ def process_message(
                 chat_id,
 
                 "📞 لطفاً شماره تماس خود را وارد کنید:"
-
             )
 
             return
 
         # -------------------------------------------------
-        # PHONE
+        # ORDER PHONE
         # -------------------------------------------------
 
         if state == "order_phone":
@@ -2251,19 +1993,22 @@ def process_message(
 
                     "❌ شماره تماس صحیح نیست.\n"
                     "لطفاً دوباره وارد کنید:"
-
                 )
 
                 return
+
+            name = state_data.get(
+                "name",
+                ""
+            )
 
             finish_order(
 
                 chat_id,
 
-                state_data["name"],
+                name,
 
                 phone
-
             )
 
             return
@@ -2274,11 +2019,10 @@ def process_message(
 
         if state == "quantity":
 
-            number_text = normalize(
+            if not re.fullmatch(
+                r"\d+",
                 text
-            )
-
-            if not number_text.isdigit():
+            ):
 
                 send_message(
 
@@ -2286,13 +2030,12 @@ def process_message(
 
                     "❌ تعداد باید عدد باشد.\n"
                     "مثلاً: 2"
-
                 )
 
                 return
 
             quantity = int(
-                number_text
+                text
             )
 
             if quantity <= 0:
@@ -2302,18 +2045,12 @@ def process_message(
                     chat_id,
 
                     "❌ تعداد باید بیشتر از صفر باشد."
-
                 )
 
                 return
 
             item = state_data.get(
                 "item"
-            )
-
-            results = state_data.get(
-                "results",
-                []
             )
 
             if not item:
@@ -2323,8 +2060,14 @@ def process_message(
                     chat_id,
 
                     "❌ اطلاعات کالا پیدا نشد."
-
                 )
+
+                with LOCK:
+
+                    USER_STATES.pop(
+                        chat_id,
+                        None
+                    )
 
                 return
 
@@ -2335,46 +2078,24 @@ def process_message(
                 item,
 
                 quantity
-
             )
-
-            # مهم:
-            # بعد از اضافه شدن کالا،
-            # نتایج جستجو حفظ می‌شوند
-            # تا کالاهای دیگر هم اضافه شوند.
 
             with LOCK:
 
-                USER_STATES[chat_id] = {
-
-                    "state":
-                        "search_results",
-
-                    "results":
-                        results
-
-                }
+                USER_STATES.pop(
+                    chat_id,
+                    None
+                )
 
             send_message(
 
                 chat_id,
 
-                f"✅ {item['name']}\n"
-                f"📦 تعداد {quantity} عدد به سبد اضافه شد.\n\n"
-                "می‌توانید کالاهای دیگری هم به سبد اضافه کنید."
-
+                "✅ کالا با موفقیت به سبد خرید اضافه شد."
             )
 
-            send_message(
-
-                chat_id,
-
-                "🛒 برای مشاهده سبد:",
-
-                [[
-                    "🛒 سبد خرید"
-                ]]
-
+            show_cart(
+                chat_id
             )
 
             return
@@ -2392,68 +2113,78 @@ def process_message(
                 None
             )
 
-        group = PDF_GROUPS[text]
+        group = PDF_GROUPS[
+            text
+        ]
 
         send_message(
 
             chat_id,
 
             "⏳ در حال آماده‌سازی فایل PDF..."
-
         )
 
-        pdf_path = find_pdf(
-            group
-        )
+        try:
 
-        if not pdf_path:
+            pdf_path = find_pdf(
+                group
+            )
+
+            if not pdf_path:
+
+                send_message(
+
+                    chat_id,
+
+                    "❌ فایل PDF این گروه پیدا نشد."
+                )
+
+                return
+
+            response = send_pdf(
+
+                chat_id,
+
+                pdf_path,
+
+                f"📄 لیست قیمت {group}"
+            )
+
+            try:
+
+                if (
+                    response
+                    and
+                    response.json().get(
+                        "ok"
+                    )
+                ):
+
+                    return
+
+            except Exception:
+                pass
 
             send_message(
 
                 chat_id,
 
-                "❌ فایل PDF این گروه پیدا نشد."
-
+                "❌ ارسال فایل PDF انجام نشد."
             )
 
-            return
+        except Exception as e:
 
-        response = send_pdf(
+            print(
+                "PDF PROCESS ERROR:",
+                e
+            )
 
-            chat_id,
+            send_message(
 
-            pdf_path,
+                chat_id,
 
-            f"📄 لیست قیمت {group}"
-
-        )
-
-        try:
-
-            if (
-
-                response is not None
-
-                and
-
-                response.json().get(
-                    "ok"
-                )
-
-            ):
-
-                return
-
-        except Exception:
-            pass
-
-        send_message(
-
-            chat_id,
-
-            "❌ ارسال فایل PDF انجام نشد."
-
-        )
+                "❌ هنگام ارسال فایل خطایی رخ داد."
+            )
 
         return
 
@@ -2463,31 +2194,55 @@ def process_message(
 
     if text:
 
+        with LOCK:
+
+            USER_STATES[
+                chat_id
+            ] = {
+
+                "state":
+                    "search"
+            }
+
         send_message(
 
             chat_id,
 
-            "🔎 در حال جستجوی کالا..."
-
+            "🔎 در حال جستجوی کامل..."
         )
 
-        results = search_excel(
-            text
-        )
+        try:
 
-        send_search_results(
+            results = search_excel(
+                text
+            )
 
-            chat_id,
+            send_search_results(
 
-            results
+                chat_id,
 
-        )
+                results
+            )
+
+        except Exception as e:
+
+            print(
+                "GENERAL SEARCH ERROR:",
+                e
+            )
+
+            send_message(
+
+                chat_id,
+
+                "❌ خطایی هنگام جستجو رخ داد."
+            )
 
         return
 
 
 # =========================================================
-# UPDATE
+# UPDATE PROCESSOR
 # =========================================================
 
 def process_update(
@@ -2501,11 +2256,9 @@ def process_update(
         ):
 
             process_callback(
-
                 update[
                     "callback_query"
                 ]
-
             )
 
         elif update.get(
@@ -2513,21 +2266,16 @@ def process_update(
         ):
 
             process_message(
-
                 update[
                     "message"
                 ]
-
             )
 
     except Exception as e:
 
         print(
-
-            "UPDATE ERROR:",
-
-            repr(e)
-
+            "UPDATE PROCESS ERROR:",
+            e
         )
 
 
@@ -2537,7 +2285,9 @@ def process_update(
 
 @app.route(
     "/webhook",
-    methods=["POST"]
+    methods=[
+        "POST"
+    ]
 )
 def webhook():
 
@@ -2547,44 +2297,60 @@ def webhook():
             silent=True
         )
 
-        if update:
+        if not update:
 
-            # پاسخ سریع به Bale
-            # پردازش در Thread جدا
-            threading.Thread(
+            return jsonify({
+                "ok": True
+            })
 
-                target=process_update,
+        print(
+            "WEBHOOK UPDATE RECEIVED:",
+            update.get(
+                "update_id"
+            )
+        )
 
-                args=(update,),
+        # مهم:
+        # سریع 200 برگردانیم و پردازش را
+        # در Thread انجام دهیم.
+        threading.Thread(
 
-                daemon=True
+            target=process_update,
 
-            ).start()
+            args=(update,),
 
-        return {
+            daemon=True
+
+        ).start()
+
+        return jsonify({
             "ok": True
-        }
+        })
 
     except Exception as e:
 
         print(
-
             "WEBHOOK ERROR:",
-
-            repr(e)
-
+            e
         )
 
-        return {
+        # حتی در خطا هم 200 می‌دهیم تا
+        # Bale پشت سر هم retry نکند.
+        return jsonify({
             "ok": True
-        }
+        })
 
 
 # =========================================================
 # HEALTH
 # =========================================================
 
-@app.route("/")
+@app.route(
+    "/",
+    methods=[
+        "GET"
+    ]
+)
 def home():
 
     return (
@@ -2592,51 +2358,25 @@ def home():
     )
 
 
-@app.route("/health")
+@app.route(
+    "/health",
+    methods=[
+        "GET"
+    ]
+)
 def health():
 
-    return {
+    return jsonify({
 
         "status":
             "ok",
 
         "webhook":
-            WEBHOOK_ACTIVE,
+            True,
 
         "admin_configured":
-            bool(
-                ADMIN_CHAT_ID
-            )
-
-    }
-
-
-# =========================================================
-# GET WEBHOOK INFO
-# =========================================================
-
-def get_webhook_info():
-
-    response = bale_post(
-
-        "getWebhookInfo",
-
-        {},
-
-        20
-
-    )
-
-    if response is None:
-        return None
-
-    try:
-
-        return response.json()
-
-    except Exception:
-
-        return None
+            bool(ADMIN_CHAT_ID)
+    })
 
 
 # =========================================================
@@ -2645,206 +2385,110 @@ def get_webhook_info():
 
 def setup_webhook():
 
-    global WEBHOOK_ACTIVE
-
     if not TOKEN:
 
         print(
-            "❌ TOKEN NOT FOUND"
+            "❌ BALE_TOKEN is missing."
         )
 
         return False
 
-    render_url = os.getenv(
-        "RENDER_EXTERNAL_URL",
-        ""
-    ).strip()
+    print(
+        "======================================"
+    )
 
-    custom_url = os.getenv(
-        "WEBHOOK_URL",
-        ""
-    ).strip()
-
-    if custom_url:
-
-        webhook_url = (
-
-            custom_url.rstrip("/")
-            +
-            "/webhook"
-
-        )
-
-    elif render_url:
-
-        webhook_url = (
-
-            render_url.rstrip("/")
-            +
-            "/webhook"
-
-        )
-
-    else:
-
-        print(
-            "❌ RENDER_EXTERNAL_URL NOT FOUND"
-        )
-
-        return False
+    print(
+        "SETTING BALE WEBHOOK"
+    )
 
     print(
         "WEBHOOK URL:",
-        webhook_url
+        WEBHOOK_URL
     )
-
-    for attempt in range(
-        1,
-        6
-    ):
-
-        try:
-
-            response = bale_post(
-
-                "setWebhook",
-
-                {
-
-                    "url":
-                        webhook_url
-
-                },
-
-                30
-
-            )
-
-            if response:
-
-                try:
-
-                    data = response.json()
-
-                    print(
-                        "SET WEBHOOK RESULT:",
-                        data
-                    )
-
-                    if data.get(
-                        "ok"
-                    ):
-
-                        WEBHOOK_ACTIVE = True
-
-                        print(
-                            "✅ WEBHOOK ACTIVE"
-                        )
-
-                        return True
-
-                except Exception:
-                    pass
-
-        except Exception as e:
-
-            print(
-                "WEBHOOK ATTEMPT ERROR:",
-                e
-            )
-
-        time.sleep(
-            3
-        )
 
     print(
-        "❌ WEBHOOK COULD NOT BE SET"
+        "======================================"
     )
 
-    return False
+    try:
 
+        response = requests.post(
 
-# =========================================================
-# WEBHOOK WATCHER
-# =========================================================
+            f"{BASE_URL}/setWebhook",
 
-def webhook_watcher():
+            json={
 
-    global WEBHOOK_ACTIVE
+                "url":
+                    WEBHOOK_URL
+            },
 
-    while True:
+            timeout=30
+        )
+
+        print(
+            "SET WEBHOOK STATUS:",
+            response.status_code
+        )
+
+        print(
+            "SET WEBHOOK RESPONSE:",
+            response.text[:500]
+        )
 
         try:
 
-            time.sleep(
-                300
-            )
+            data = response.json()
 
-            info = get_webhook_info()
-
-            if not info:
-
-                continue
-
-            result = info.get(
-                "result",
-                {}
-            )
-
-            current_url = str(
-                result.get(
-                    "url",
-                    ""
+            return bool(
+                data.get(
+                    "ok"
                 )
             )
 
-            last_error = result.get(
-                "last_error_message"
-            )
+        except Exception:
 
-            if last_error:
+            return response.status_code == 200
 
-                print(
+    except Exception as e:
 
-                    "⚠️ WEBHOOK LAST ERROR:",
+        print(
+            "SET WEBHOOK ERROR:",
+            e
+        )
 
-                    last_error
+        return False
 
-                )
 
-            if not current_url:
+# =========================================================
+# WEBHOOK INFO
+# =========================================================
 
-                print(
-                    "⚠️ WEBHOOK MISSING"
-                )
+def show_webhook_info():
 
-                setup_webhook()
+    if not TOKEN:
+        return
 
-                continue
+    try:
 
-            if not current_url.endswith(
-                "/webhook"
-            ):
+        response = requests.get(
 
-                print(
-                    "⚠️ WRONG WEBHOOK URL"
-                )
+            f"{BASE_URL}/getWebhookInfo",
 
-                setup_webhook()
+            timeout=20
+        )
 
-                continue
+        print(
+            "WEBHOOK INFO:",
+            response.status_code,
+            response.text[:1000]
+        )
 
-            WEBHOOK_ACTIVE = True
+    except Exception as e:
 
-        except Exception as e:
-
-            print(
-
-                "WEBHOOK WATCHER ERROR:",
-
-                repr(e)
-
-            )
+        print(
+            "WEBHOOK INFO ERROR:",
+            e
+        )
 
 
 # =========================================================
@@ -2854,7 +2498,7 @@ def webhook_watcher():
 if __name__ == "__main__":
 
     print(
-        "========================================"
+        "======================================"
     )
 
     print(
@@ -2862,23 +2506,19 @@ if __name__ == "__main__":
     )
 
     print(
-        "========================================"
+        "WEBHOOK MODE"
     )
 
     print(
-        "SEARCH: ON"
+        "SEARCH + PDF + CART + ORDER"
     )
 
     print(
-        "CART: ON"
+        "MULTI PRODUCT CART"
     )
 
     print(
-        "MULTI PRODUCT CART: ON"
-    )
-
-    print(
-        "ORDER: ON"
+        "ADMIN ORDER NOTIFICATION"
     )
 
     print(
@@ -2887,36 +2527,29 @@ if __name__ == "__main__":
     )
 
     print(
-        "PRICE UNIT: RIAL"
+        "PUBLIC URL:",
+        PUBLIC_URL
     )
 
     print(
-        "WEBHOOK MODE: ON"
+        "WEBHOOK:",
+        WEBHOOK_URL
     )
 
     print(
-        "========================================"
+        "======================================"
     )
 
-    load_orders()
-
+    # تنظیم خودکار Webhook
     setup_webhook()
 
-    threading.Thread(
-
-        target=webhook_watcher,
-
-        daemon=True
-
-    ).start()
+    show_webhook_info()
 
     port = int(
-
         os.environ.get(
             "PORT",
             "10000"
         )
-
     )
 
     app.run(
@@ -2926,5 +2559,4 @@ if __name__ == "__main__":
         port=port,
 
         threaded=True
-
     )
