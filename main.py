@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import json
 import threading
 import requests
 from flask import Flask, request
@@ -15,11 +16,24 @@ app = Flask(__name__)
 PHONE = "09377700031"
 WEBSITE = "https://www.tecnoyadakabbasi.ir"
 
+# آیدی صاحب ربات
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
+
 CARTS = {}
 USER_STATES = {}
+
 ORDER_COUNTER = 1000
 
 WEBHOOK_ACTIVE = False
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+ORDERS_FILE = os.path.join(
+    BASE_DIR,
+    "orders.json"
+)
 
 
 # =========================================================
@@ -90,10 +104,15 @@ def compact(text):
 # SEND MESSAGE
 # =========================================================
 
-def send_message(chat_id, text, keyboard=None, inline=False):
+def send_message(
+    chat_id,
+    text,
+    keyboard=None,
+    inline=False
+):
 
     if not TOKEN:
-        print("BALE_TOKEN NOT FOUND")
+        print("❌ BALE_TOKEN NOT FOUND")
         return None
 
     data = {
@@ -119,9 +138,13 @@ def send_message(chat_id, text, keyboard=None, inline=False):
     try:
 
         response = requests.post(
+
             f"{BASE_URL}/sendMessage",
+
             json=data,
+
             timeout=30
+
         )
 
         print(
@@ -142,10 +165,13 @@ def send_message(chat_id, text, keyboard=None, inline=False):
 
 
 # =========================================================
-# CALLBACK ANSWER
+# CALLBACK
 # =========================================================
 
-def answer_callback(callback_id, text=""):
+def answer_callback(
+    callback_id,
+    text=""
+):
 
     try:
 
@@ -159,6 +185,7 @@ def answer_callback(callback_id, text=""):
             },
 
             timeout=20
+
         )
 
     except Exception as e:
@@ -179,6 +206,8 @@ def main_menu(chat_id):
 
         ["📞 تماس مستقیم", "🌐 ورود به سایت"],
 
+        ["🆔 آیدی من"],
+
         ["📄 دریافت لیست قیمت"],
 
         ["🔎 جستجوی کالا"],
@@ -198,9 +227,13 @@ def main_menu(chat_id):
     ]
 
     send_message(
+
         chat_id,
+
         "📋 گزینه مورد نظر را انتخاب کنید:",
+
         keyboard
+
     )
 
 
@@ -210,19 +243,18 @@ def main_menu(chat_id):
 
 def find_pdf(group_name):
 
-    base = os.path.dirname(
-        os.path.abspath(__file__)
-    )
-
     wanted = compact(group_name)
 
     try:
 
-        files = os.listdir(base)
+        files = os.listdir(BASE_DIR)
 
     except Exception as e:
 
-        print("PDF LIST ERROR:", e)
+        print(
+            "PDF LIST ERROR:",
+            e
+        )
 
         return None
 
@@ -245,14 +277,18 @@ def find_pdf(group_name):
         ):
 
             return os.path.join(
-                base,
+                BASE_DIR,
                 filename
             )
 
     return None
 
 
-def send_pdf(chat_id, pdf_path, caption):
+def send_pdf(
+    chat_id,
+    pdf_path,
+    caption
+):
 
     try:
 
@@ -279,13 +315,17 @@ def send_pdf(chat_id, pdf_path, caption):
                 },
 
                 timeout=180
+
             )
 
         return response
 
     except Exception as e:
 
-        print("PDF ERROR:", e)
+        print(
+            "PDF ERROR:",
+            e
+        )
 
         return None
 
@@ -361,6 +401,7 @@ def get_columns(row):
         name = normalize(value)
 
         if "گروه" in name:
+
             columns["group"] = index
 
         elif (
@@ -368,28 +409,32 @@ def get_columns(row):
             or name == "کد"
             or "شناسه" in name
         ):
+
             columns["code"] = index
 
         elif (
             "نام کالا" in name
             or name == "نام"
         ):
+
             columns["name"] = index
 
         elif "قیمت" in name:
+
             columns["price"] = index
 
         elif (
             "توضیحات" in name
             or "توضیح" in name
         ):
+
             columns["description"] = index
 
     return columns
 
 
 # =========================================================
-# SEARCH MATCH
+# SEARCH
 # =========================================================
 
 def search_matches(
@@ -407,10 +452,12 @@ def search_matches(
         return False
 
     full_text = " ".join([
+
         normalize(code),
         normalize(name),
         normalize(group),
         normalize(description)
+
     ])
 
     full_compact = compact(full_text)
@@ -422,29 +469,28 @@ def search_matches(
         return True
 
     words = [
+
         word
+
         for word in q.split()
+
         if len(word) >= 2
+
     ]
 
     if not words:
         return False
 
     return all(
+
         word in full_text
+
         for word in words
+
     )
 
-
-# =========================================================
-# SEARCH EXCEL
-# =========================================================
 
 def search_excel(query):
-
-    base = os.path.dirname(
-        os.path.abspath(__file__)
-    )
 
     try:
 
@@ -452,7 +498,7 @@ def search_excel(query):
 
             filename
 
-            for filename in os.listdir(base)
+            for filename in os.listdir(BASE_DIR)
 
             if filename.lower().endswith(".xlsx")
 
@@ -462,28 +508,38 @@ def search_excel(query):
 
     except Exception as e:
 
-        print("EXCEL LIST ERROR:", e)
+        print(
+            "EXCEL LIST ERROR:",
+            e
+        )
 
         return []
 
     results = []
     seen = set()
 
-    print("SEARCH:", query)
+    print(
+        "SEARCH:",
+        query
+    )
 
     for filename in excel_files:
 
         path = os.path.join(
-            base,
+            BASE_DIR,
             filename
         )
 
         try:
 
             workbook = load_workbook(
+
                 path,
+
                 read_only=True,
+
                 data_only=True
+
             )
 
             for sheet in workbook.worksheets:
@@ -513,6 +569,7 @@ def search_excel(query):
 
                         header_row = row_number
                         columns = found
+
                         break
 
                 if not columns:
@@ -622,16 +679,22 @@ def search_excel(query):
 
 
 # =========================================================
-# SHOW SEARCH RESULTS
+# SEARCH RESULTS
 # =========================================================
 
-def send_search_results(chat_id, results):
+def send_search_results(
+    chat_id,
+    results
+):
 
     if not results:
 
         send_message(
+
             chat_id,
+
             "❌ کالایی با این کد یا نام پیدا نشد."
+
         )
 
         return
@@ -696,8 +759,11 @@ def send_search_results(chat_id, results):
         send_message(
 
             chat_id,
+
             message,
+
             keyboard,
+
             inline=True
 
         )
@@ -753,8 +819,11 @@ def show_cart(chat_id):
     if not cart:
 
         send_message(
+
             chat_id,
+
             "🛒 سبد خرید شما خالی است."
+
         )
 
         return
@@ -764,8 +833,11 @@ def show_cart(chat_id):
     total = 0
 
     for index, item in enumerate(
+
         cart,
+
         start=1
+
     ):
 
         item_total = (
@@ -816,9 +888,13 @@ def show_cart(chat_id):
     ]
 
     send_message(
+
         chat_id,
+
         message,
+
         keyboard
+
     )
 
 
@@ -832,11 +908,201 @@ def clear_cart(chat_id):
     )
 
     send_message(
+
         chat_id,
+
         "🗑️ سبد خرید خالی شد."
+
     )
 
     main_menu(chat_id)
+
+
+# =========================================================
+# SAVE ORDERS
+# =========================================================
+
+def load_orders():
+
+    global ORDER_COUNTER
+
+    try:
+
+        if not os.path.exists(
+            ORDERS_FILE
+        ):
+
+            return []
+
+        with open(
+
+            ORDERS_FILE,
+
+            "r",
+
+            encoding="utf-8"
+
+        ) as file:
+
+            orders = json.load(file)
+
+        if orders:
+
+            ORDER_COUNTER = max(
+
+                int(
+                    order.get(
+                        "order_number",
+                        1000
+                    )
+                )
+
+                for order in orders
+
+            )
+
+        return orders
+
+    except Exception as e:
+
+        print(
+            "LOAD ORDERS ERROR:",
+            e
+        )
+
+        return []
+
+
+def save_order(order):
+
+    try:
+
+        orders = load_orders()
+
+        orders.append(order)
+
+        with open(
+
+            ORDERS_FILE,
+
+            "w",
+
+            encoding="utf-8"
+
+        ) as file:
+
+            json.dump(
+
+                orders,
+
+                file,
+
+                ensure_ascii=False,
+
+                indent=2
+
+            )
+
+        print(
+            "ORDER SAVED:",
+            order["order_number"]
+        )
+
+        return True
+
+    except Exception as e:
+
+        print(
+            "SAVE ORDER ERROR:",
+            e
+        )
+
+        return False
+
+
+# =========================================================
+# SEND ORDER TO ADMIN
+# =========================================================
+
+def send_order_to_admin(order):
+
+    if not ADMIN_CHAT_ID:
+
+        print(
+            "⚠️ ADMIN_CHAT_ID NOT SET"
+        )
+
+        return False
+
+    message = (
+
+        "🚨 سفارش جدید دریافت شد\n\n"
+
+        f"🔢 شماره سفارش: "
+        f"{order['order_number']}\n"
+
+        f"📅 زمان: "
+        f"{order['date']}\n\n"
+
+        f"👤 نام مشتری: "
+        f"{order['name']}\n"
+
+        f"📞 تلفن: "
+        f"{order['phone']}\n"
+
+        f"🆔 Chat ID: "
+        f"{order['chat_id']}\n\n"
+
+        "📦 کالاها:\n"
+
+    )
+
+    for item in order["items"]:
+
+        message += (
+
+            f"\n• {item['name']}\n"
+
+            f"کد: {item['code']}\n"
+
+            f"تعداد: {item['quantity']}\n"
+
+            f"قیمت واحد: "
+            f"{item['price']:,} ریال\n"
+
+            f"مبلغ: "
+            f"{item['total']:,} ریال\n"
+
+        )
+
+    message += (
+
+        "\n────────────────\n"
+
+        f"💰 مبلغ کل: "
+        f"{order['total']:,} ریال"
+
+    )
+
+    response = send_message(
+
+        ADMIN_CHAT_ID,
+
+        message
+
+    )
+
+    try:
+
+        return bool(
+            response
+            and
+            response.json().get("ok")
+        )
+
+    except Exception:
+
+        return False
 
 
 # =========================================================
@@ -893,8 +1159,11 @@ def finish_order(
     if not cart:
 
         send_message(
+
             chat_id,
+
             "❌ سبد خرید خالی است."
+
         )
 
         return
@@ -905,22 +1174,9 @@ def finish_order(
 
     order_number = ORDER_COUNTER
 
+    items = []
+
     total = 0
-
-    message = (
-
-        "✅ سفارش شما ثبت شد.\n\n"
-
-        f"🔢 شماره سفارش: "
-        f"{order_number}\n"
-
-        f"👤 نام: {name}\n"
-
-        f"📞 تماس: {phone}\n\n"
-
-        "📦 اقلام سفارش:\n"
-
-    )
 
     for item in cart:
 
@@ -934,6 +1190,69 @@ def finish_order(
 
         total += item_total
 
+        items.append({
+
+            "code": item["code"],
+
+            "name": item["name"],
+
+            "price": item["price"],
+
+            "quantity": item["quantity"],
+
+            "total": item_total
+
+        })
+
+    from datetime import datetime
+
+    now = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    order = {
+
+        "order_number": order_number,
+
+        "date": now,
+
+        "chat_id": chat_id,
+
+        "name": name,
+
+        "phone": phone,
+
+        "items": items,
+
+        "total": total
+
+    }
+
+    saved = save_order(
+        order
+    )
+
+    admin_sent = send_order_to_admin(
+        order
+    )
+
+    message = (
+
+        "✅ سفارش شما با موفقیت ثبت شد.\n\n"
+
+        f"🔢 شماره سفارش: "
+        f"{order_number}\n"
+
+        f"👤 نام: {name}\n"
+
+        f"📞 تماس: {phone}\n\n"
+
+        "📦 اقلام سفارش:\n"
+
+    )
+
+    for item in items:
+
         message += (
 
             f"\n• {item['name']}\n"
@@ -943,7 +1262,7 @@ def finish_order(
             f"تعداد: {item['quantity']}\n"
 
             f"مبلغ: "
-            f"{item_total:,} ریال\n"
+            f"{item['total']:,} ریال\n"
 
         )
 
@@ -955,13 +1274,35 @@ def finish_order(
         f"{total:,} ریال\n\n"
 
         "📞 جهت پیگیری:\n"
+
         "۰۹۳۷۷۷۰۰۰۳۱"
 
     )
 
+    if not saved:
+
+        message += (
+
+            "\n\n⚠️ توجه: "
+            "ذخیره محلی سفارش با خطا مواجه شد."
+
+        )
+
+    if not admin_sent:
+
+        message += (
+
+            "\n\nℹ️ سفارش ثبت شد؛ "
+            "ارسال نسخه مدیر هنوز تنظیم نشده است."
+
+        )
+
     send_message(
+
         chat_id,
+
         message
+
     )
 
     CARTS[chat_id] = []
@@ -1019,8 +1360,11 @@ def process_callback(callback):
     if len(parts) != 3:
 
         answer_callback(
+
             callback_id,
+
             "خطا در انتخاب کالا"
+
         )
 
         return
@@ -1038,8 +1382,11 @@ def process_callback(callback):
     except Exception:
 
         answer_callback(
+
             callback_id,
+
             "خطا در انتخاب کالا"
+
         )
 
         return
@@ -1047,8 +1394,11 @@ def process_callback(callback):
     if result_chat_id != chat_id:
 
         answer_callback(
+
             callback_id,
+
             "این دکمه برای کاربر دیگری است."
+
         )
 
         return
@@ -1060,8 +1410,11 @@ def process_callback(callback):
     if not state_data:
 
         answer_callback(
+
             callback_id,
+
             "نتایج جستجو منقضی شده است."
+
         )
 
         return
@@ -1078,17 +1431,16 @@ def process_callback(callback):
     ):
 
         answer_callback(
+
             callback_id,
+
             "کالا پیدا نشد."
+
         )
 
         return
 
     item = results[index]
-
-    # نتایج را نگه می‌داریم
-    # تا بعد از وارد کردن تعداد،
-    # کالاهای دیگر هم قابل انتخاب باشند.
 
     USER_STATES[chat_id] = {
 
@@ -1101,8 +1453,11 @@ def process_callback(callback):
     }
 
     answer_callback(
+
         callback_id,
+
         "کالا انتخاب شد ✅"
+
     )
 
     send_message(
@@ -1144,6 +1499,7 @@ def process_message(message):
 
     print(
         "USER MESSAGE:",
+        chat_id,
         text
     )
 
@@ -1173,6 +1529,29 @@ def process_message(message):
         )
 
         main_menu(chat_id)
+
+        return
+
+    # =====================================================
+    # MY ID
+    # =====================================================
+
+    if text in (
+        "🆔 آیدی من",
+        "/myid"
+    ):
+
+        send_message(
+
+            chat_id,
+
+            "🆔 آیدی عددی شما:\n\n"
+            f"{chat_id}\n\n"
+            "این عدد را در Render داخل متغیر:\n"
+            "ADMIN_CHAT_ID\n"
+            "قرار دهید."
+
+        )
 
         return
 
@@ -1290,7 +1669,7 @@ def process_message(message):
         return
 
     # =====================================================
-    # CURRENT STATE
+    # STATE
     # =====================================================
 
     state_data = USER_STATES.get(
@@ -1312,8 +1691,11 @@ def process_message(message):
             if not text:
 
                 send_message(
+
                     chat_id,
+
                     "❌ نام را وارد کنید."
+
                 )
 
                 return
@@ -1352,7 +1734,8 @@ def process_message(message):
 
                     chat_id,
 
-                    "❌ شماره تماس صحیح نیست."
+                    "❌ شماره تماس صحیح نیست.\n"
+                    "لطفاً دوباره وارد کنید:"
 
                 )
 
@@ -1434,10 +1817,6 @@ def process_message(message):
 
             )
 
-            # خیلی مهم:
-            # بعد از اضافه شدن کالا،
-            # نتایج جستجو را نگه می‌داریم.
-
             USER_STATES[chat_id] = {
 
                 "state": "search_results",
@@ -1451,39 +1830,22 @@ def process_message(message):
                 chat_id,
 
                 f"✅ {item['name']}\n"
-                f"با تعداد {quantity} عدد به سبد اضافه شد.\n\n"
-                "🔎 می‌توانید کالای دیگری از همین نتایج انتخاب کنید."
+                f"تعداد {quantity} عدد به سبد خرید اضافه شد.\n\n"
+                "🔎 می‌توانید کالای دیگری هم اضافه کنید."
 
             )
-
-            # فقط یک دکمه عمومی برای دیدن سبد
 
             send_message(
 
                 chat_id,
 
-                "🛒 برای مشاهده سبد خرید:"
-
-                ,
+                "🛒 برای مشاهده سبد خرید:",
 
                 [["🛒 سبد خرید"]]
 
             )
 
             return
-
-        # -------------------------------------------------
-        # SEARCH MODE
-        # -------------------------------------------------
-
-        if state in (
-            "search",
-            "search_results"
-        ):
-
-            # ادامه به جستجوی عمومی
-            pass
-
 
     # =====================================================
     # PDF
@@ -1536,7 +1898,8 @@ def process_message(message):
 
             if (
                 response is not None
-                and response.json().get("ok")
+                and
+                response.json().get("ok")
             ):
 
                 return
@@ -1560,7 +1923,6 @@ def process_message(message):
 
     if text:
 
-        # جستجوی جدید
         results = search_excel(
             text
         )
@@ -1577,7 +1939,7 @@ def process_message(message):
 
 
 # =========================================================
-# UPDATE PROCESSOR
+# UPDATE
 # =========================================================
 
 def process_update(update):
@@ -1603,7 +1965,7 @@ def process_update(update):
     except Exception as e:
 
         print(
-            "UPDATE PROCESS ERROR:",
+            "UPDATE ERROR:",
             e
         )
 
@@ -1625,9 +1987,6 @@ def webhook():
         )
 
         if update:
-
-            # سریع پاسخ بده به Bale
-            # و پردازش را در Thread انجام بده.
 
             threading.Thread(
 
@@ -1656,7 +2015,7 @@ def webhook():
 
 
 # =========================================================
-# WEBHOOK SETUP
+# SET WEBHOOK
 # =========================================================
 
 def setup_webhook():
@@ -1665,14 +2024,7 @@ def setup_webhook():
 
     if not TOKEN:
 
-        print(
-            "BALE_TOKEN NOT FOUND"
-        )
-
         return
-
-    # Render این متغیر را معمولاً در اختیار سرویس قرار می‌دهد.
-    # امکان تنظیم دستی WEBHOOK_URL هم وجود دارد.
 
     render_url = os.getenv(
         "RENDER_EXTERNAL_URL"
@@ -1684,24 +2036,24 @@ def setup_webhook():
 
     if manual_url:
 
-        webhook_url = manual_url.rstrip(
-            "/"
-        ) + "/webhook"
+        webhook_url = (
+            manual_url.rstrip("/")
+            +
+            "/webhook"
+        )
 
     elif render_url:
 
-        webhook_url = render_url.rstrip(
-            "/"
-        ) + "/webhook"
+        webhook_url = (
+            render_url.rstrip("/")
+            +
+            "/webhook"
+        )
 
     else:
 
         print(
             "WEBHOOK URL NOT FOUND"
-        )
-
-        print(
-            "FALLBACK TO POLLING"
         )
 
         return
@@ -1721,16 +2073,20 @@ def setup_webhook():
         )
 
         print(
+
             "WEBHOOK SET:",
+
             response.status_code,
+
             response.text
+
         )
 
         try:
 
-            data = response.json()
-
-            if data.get("ok"):
+            if response.json().get(
+                "ok"
+            ):
 
                 WEBHOOK_ACTIVE = True
 
@@ -1745,7 +2101,7 @@ def setup_webhook():
     except Exception as e:
 
         print(
-            "WEBHOOK SET ERROR:",
+            "WEBHOOK ERROR:",
             e
         )
 
@@ -1771,8 +2127,11 @@ def polling_loop():
                 f"{BASE_URL}/getUpdates",
 
                 params={
+
                     "offset": offset,
+
                     "timeout": 30
+
                 },
 
                 timeout=45
@@ -1781,6 +2140,11 @@ def polling_loop():
 
             if response.status_code != 200:
 
+                print(
+                    "POLLING HTTP ERROR:",
+                    response.status_code
+                )
+
                 time.sleep(5)
 
                 continue
@@ -1788,6 +2152,11 @@ def polling_loop():
             data = response.json()
 
             if not data.get("ok"):
+
+                print(
+                    "POLLING API ERROR:",
+                    data
+                )
 
                 time.sleep(5)
 
@@ -1831,8 +2200,7 @@ def home():
 
     return (
         "Bale Bot is running - "
-        "Webhook + Search + PDF + Cart + Order - "
-        "Prices in Rial"
+        "Search + PDF + Cart + Order"
     )
 
 
@@ -1840,8 +2208,15 @@ def home():
 def health():
 
     return {
+
         "status": "ok",
-        "webhook": WEBHOOK_ACTIVE
+
+        "webhook": WEBHOOK_ACTIVE,
+
+        "admin_configured": bool(
+            ADMIN_CHAT_ID
+        )
+
     }
 
 
@@ -1864,21 +2239,20 @@ if __name__ == "__main__":
     )
 
     print(
-        "PRICE UNIT: RIAL"
+        "ORDER NOTIFICATION ENABLED"
     )
 
     print(
-        "WEBHOOK ENABLED"
+        "PRICE UNIT: RIAL"
     )
 
     print(
         "======================================"
     )
 
-    setup_webhook()
+    load_orders()
 
-    # فقط اگر Webhook قابل تنظیم نبود
-    # Polling اجرا می‌شود.
+    setup_webhook()
 
     if not WEBHOOK_ACTIVE:
 
