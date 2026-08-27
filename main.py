@@ -16,7 +16,6 @@ app = Flask(__name__)
 PHONE = "09377700031"
 WEBSITE = "https://www.tecnoyadakabbasi.ir"
 
-
 # =========================================================
 # PDF GROUPS
 # =========================================================
@@ -33,15 +32,12 @@ PDF_GROUPS = {
     "⚙️ جلوبندی": "جلوبندی",
 }
 
-
 # =========================================================
-# سبد خرید کاربران
+# USER DATA
 # =========================================================
 
 CARTS = {}
-
 USER_STATES = {}
-
 ORDER_COUNTER = 1000
 
 
@@ -50,7 +46,6 @@ ORDER_COUNTER = 1000
 # =========================================================
 
 def normalize(text):
-
     text = str(text or "")
 
     text = text.translate(
@@ -72,31 +67,22 @@ def normalize(text):
         "\u200c": " ",
         "\u200f": "",
         "\u200e": "",
-        "%20": " ",
     }
 
     for old, new in replacements.items():
         text = text.replace(old, new)
 
     text = text.lower()
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    )
+    text = re.sub(r"\s+", " ", text)
 
     return text.strip()
 
 
 def compact(text):
-
-    text = normalize(text)
-
     return re.sub(
         r"[^0-9a-zآ-ی]+",
         "",
-        text
+        normalize(text)
     )
 
 
@@ -112,24 +98,24 @@ def send_message(chat_id, text, keyboard=None):
     }
 
     if keyboard:
-
         data["reply_markup"] = {
             "keyboard": keyboard,
             "resize_keyboard": True
         }
 
     try:
-
-        return requests.post(
+        response = requests.post(
             f"{BASE_URL}/sendMessage",
             json=data,
             timeout=30
         )
 
+        print("MESSAGE:", response.status_code)
+
+        return response
+
     except Exception as e:
-
         print("MESSAGE ERROR:", e)
-
         return None
 
 
@@ -141,27 +127,21 @@ def main_menu(chat_id):
 
     keyboard = [
 
-        ["📞 تماس مستقیم",
-         "🌐 ورود به سایت"],
+        ["📞 تماس مستقیم", "🌐 ورود به سایت"],
 
         ["📄 دریافت لیست قیمت"],
 
         ["🔎 جستجوی کالا"],
 
-        ["🛒 سبد خرید",
-         "🧾 ثبت سفارش"],
+        ["🛒 سبد خرید", "🧾 ثبت سفارش"],
 
-        ["📦 سوکت عباسی",
-         "🔌 کابل تکنو سبزوار"],
+        ["📦 سوکت عباسی", "🔌 کابل تکنو سبزوار"],
 
-        ["⚡ وایر عباسی",
-         "🔩 مهره و سنسور"],
+        ["⚡ وایر عباسی", "🔩 مهره و سنسور"],
 
-        ["💡 قطعات برقی خودرو",
-         "🧩 خارجات و پلیمریجات"],
+        ["💡 قطعات برقی خودرو", "🧩 خارجات و پلیمریجات"],
 
-        ["🔌 کابل خودرو سبزوار",
-         "⚙️ شیلنگ خودرو"],
+        ["🔌 کابل خودرو سبزوار", "⚙️ شیلنگ خودرو"],
 
         ["⚙️ جلوبندی"]
 
@@ -187,13 +167,9 @@ def find_pdf(group_name):
     wanted = compact(group_name)
 
     try:
-
         files = os.listdir(base)
-
     except Exception as e:
-
         print("LIST FILE ERROR:", e)
-
         return None
 
     for filename in files:
@@ -213,10 +189,8 @@ def find_pdf(group_name):
 
         if (
             wanted in normalized_name
-            or
-            normalized_name in wanted
+            or normalized_name in wanted
         ):
-
             return os.path.join(
                 base,
                 filename
@@ -233,10 +207,7 @@ def send_pdf(chat_id, pdf_path, caption):
 
     try:
 
-        with open(
-            pdf_path,
-            "rb"
-        ) as file:
+        with open(pdf_path, "rb") as file:
 
             response = requests.post(
 
@@ -263,7 +234,6 @@ def send_pdf(chat_id, pdf_path, caption):
     except Exception as e:
 
         print("PDF ERROR:", e)
-
         return None
 
 
@@ -277,13 +247,11 @@ def format_price(value):
         return ""
 
     if isinstance(value, int):
-
         return f"{value:,}"
 
     if isinstance(value, float):
 
         if value.is_integer():
-
             return f"{int(value):,}"
 
         return str(value)
@@ -298,19 +266,13 @@ def format_price(value):
         number = float(text)
 
         if number.is_integer():
-
             return f"{int(number):,}"
 
     except Exception:
-
         pass
 
     return text
 
-
-# =========================================================
-# PRICE TO NUMBER
-# =========================================================
 
 def price_number(value):
 
@@ -318,15 +280,8 @@ def price_number(value):
 
         text = str(value or "")
 
-        text = text.replace(
-            ",",
-            ""
-        )
-
-        text = text.replace(
-            "٬",
-            ""
-        )
+        text = text.replace(",", "")
+        text = text.replace("٬", "")
 
         text = normalize(text)
 
@@ -335,7 +290,6 @@ def price_number(value):
         return int(number)
 
     except Exception:
-
         return 0
 
 
@@ -355,37 +309,28 @@ def get_columns(row):
         name = normalize(value)
 
         if "گروه" in name:
-
             columns["group"] = index
 
         elif (
             "کد کالا" in name
-            or
-            name == "کد"
-            or
-            "شناسه" in name
+            or name == "کد"
+            or "شناسه" in name
         ):
-
             columns["code"] = index
 
         elif (
             "نام کالا" in name
-            or
-            name == "نام"
+            or name == "نام"
         ):
-
             columns["name"] = index
 
         elif "قیمت" in name:
-
             columns["price"] = index
 
         elif (
             "توضیحات" in name
-            or
-            "توضیح" in name
+            or "توضیح" in name
         ):
-
             columns["description"] = index
 
     return columns
@@ -410,45 +355,33 @@ def search_matches(
         return False
 
     full_text = " ".join([
-
         normalize(code),
         normalize(name),
         normalize(group),
         normalize(description)
-
     ])
 
     full_compact = compact(full_text)
 
     if q in full_text:
-
         return True
 
     if qc and qc in full_compact:
-
         return True
 
     words = [
-
         word
-
         for word in q.split()
-
         if len(word) >= 2
-
     ]
 
     if not words:
-
         return False
 
-    for word in words:
-
-        if word not in full_text:
-
-            return False
-
-    return True
+    return all(
+        word in full_text
+        for word in words
+    )
 
 
 # =========================================================
@@ -474,8 +407,9 @@ def search_excel(query):
     ]
 
     results = []
-
     seen = set()
+
+    print("SEARCH:", query)
 
     for filename in excel_files:
 
@@ -498,40 +432,28 @@ def search_excel(query):
                 columns = None
 
                 for row_number, row in enumerate(
-
-                    sheet.iter_rows(
-                        values_only=True
-                    ),
-
+                    sheet.iter_rows(values_only=True),
                     start=1
-
                 ):
 
                     found = get_columns(row)
 
                     if (
                         "code" in found
-                        and
-                        "name" in found
-                        and
-                        "price" in found
+                        and "name" in found
+                        and "price" in found
                     ):
 
                         header_row = row_number
                         columns = found
-
                         break
 
                 if not columns:
-
                     continue
 
                 for row in sheet.iter_rows(
-
                     min_row=header_row + 1,
-
                     values_only=True
-
                 ):
 
                     if not row:
@@ -562,8 +484,7 @@ def search_excel(query):
 
                     if (
                         price_index is not None
-                        and
-                        price_index < len(row)
+                        and price_index < len(row)
                     ):
 
                         price = format_price(
@@ -571,44 +492,35 @@ def search_excel(query):
                         )
 
                     if not code and not name:
-
                         continue
 
                     if not search_matches(
-
                         query,
                         code,
                         name,
                         group,
                         description
-
                     ):
-
                         continue
 
                     key = (
-
                         normalize(code),
                         normalize(name),
                         normalize(group),
                         price
-
                     )
 
                     if key in seen:
-
                         continue
 
                     seen.add(key)
 
                     results.append({
-
                         "code": code,
                         "name": name,
                         "price": price,
                         "group": group,
                         "description": description
-
                     })
 
             workbook.close()
@@ -620,6 +532,11 @@ def search_excel(query):
                 filename,
                 e
             )
+
+    print(
+        "RESULTS:",
+        len(results)
+    )
 
     return results
 
@@ -640,13 +557,9 @@ def send_results(chat_id, results):
         return
 
     send_message(
-
         chat_id,
-
         "🔎 تعداد کالاهای پیدا شده: "
-        +
-        str(len(results))
-
+        + str(len(results))
     )
 
     message = ""
@@ -663,20 +576,22 @@ def send_results(chat_id, results):
 
             f"📁 گروه: {item['group']}\n"
 
-            "────────────────\n"
-
         )
 
-        if (
-            len(message)
-            +
-            len(block)
-            >
-            3500
-        ):
+        if item["description"]:
+
+            block += (
+                f"ℹ️ توضیحات: "
+                f"{item['description']}\n"
+            )
+
+        block += (
+            "────────────────\n"
+        )
+
+        if len(message) + len(block) > 3500:
 
             if message:
-
                 send_message(
                     chat_id,
                     message
@@ -685,7 +600,6 @@ def send_results(chat_id, results):
             message = block
 
         else:
-
             message += block
 
     if message:
@@ -707,7 +621,6 @@ def add_to_cart(
 ):
 
     if chat_id not in CARTS:
-
         CARTS[chat_id] = []
 
     cart = CARTS[chat_id]
@@ -719,19 +632,13 @@ def add_to_cart(
         if cart_item["code"] == code:
 
             cart_item["quantity"] += quantity
-
             return
 
     cart.append({
 
         "code": item["code"],
-
         "name": item["name"],
-
-        "price": price_number(
-            item["price"]
-        ),
-
+        "price": price_number(item["price"]),
         "quantity": quantity
 
     })
@@ -751,19 +658,15 @@ def show_cart(chat_id):
     if not cart:
 
         send_message(
-
             chat_id,
-
             "🛒 سبد خرید شما خالی است."
         )
 
         return
 
-
     message = "🛒 سبد خرید شما:\n\n"
 
     total = 0
-
 
     for index, item in enumerate(
         cart,
@@ -796,14 +699,10 @@ def show_cart(chat_id):
 
         )
 
-
     message += (
-
         f"\n💰 جمع کل: "
         f"{total:,} ریال"
-
     )
-
 
     keyboard = [
 
@@ -814,7 +713,6 @@ def show_cart(chat_id):
         ["🔙 منوی اصلی"]
 
     ]
-
 
     send_message(
         chat_id,
@@ -837,9 +735,7 @@ def clear_cart(chat_id):
     )
 
     send_message(
-
         chat_id,
-
         "🗑️ سبد خرید خالی شد."
     )
 
@@ -860,27 +756,19 @@ def start_order(chat_id):
     if not cart:
 
         send_message(
-
             chat_id,
-
             "🛒 سبد خرید خالی است.\n"
             "ابتدا کالا به سبد اضافه کنید."
         )
 
         return
 
-
     USER_STATES[chat_id] = {
-
         "state": "name"
-
     }
 
-
     send_message(
-
         chat_id,
-
         "🧾 ثبت سفارش\n\n"
         "لطفاً نام و نام خانوادگی خود را وارد کنید:"
     )
@@ -900,7 +788,7 @@ def get_order_number():
 
 
 # =========================================================
-# FINAL ORDER
+# FINISH ORDER
 # =========================================================
 
 def finish_order(
@@ -923,7 +811,6 @@ def finish_order(
 
         return
 
-
     order_number = get_order_number()
 
     total = 0
@@ -943,15 +830,12 @@ def finish_order(
 
     )
 
-
     for item in cart:
 
         item_total = (
-
             item["price"]
             *
             item["quantity"]
-
         )
 
         total += item_total
@@ -969,7 +853,6 @@ def finish_order(
 
         )
 
-
     message += (
 
         "\n────────────────\n"
@@ -982,20 +865,19 @@ def finish_order(
 
     )
 
-
     send_message(
         chat_id,
         message
     )
 
-
-    # پاک کردن سبد بعد از ثبت
     CARTS[chat_id] = []
 
     USER_STATES.pop(
         chat_id,
         None
     )
+
+    main_menu(chat_id)
 
 
 # =========================================================
@@ -1016,86 +898,13 @@ def process_message(message):
         or ""
     ).strip()
 
-
     if not chat_id:
-
         return
-
 
     print(
         "USER MESSAGE:",
         text
     )
-
-
-    # =====================================================
-    # وضعیت ثبت سفارش
-    # =====================================================
-
-    state_data = USER_STATES.get(
-        chat_id
-    )
-
-
-    if state_data:
-
-        state = state_data.get(
-            "state"
-        )
-
-
-        if state == "name":
-
-            state_data["name"] = text
-
-            state_data["state"] = "phone"
-
-            send_message(
-
-                chat_id,
-
-                "📞 لطفاً شماره تماس خود را وارد کنید:"
-            )
-
-            return
-
-
-        if state == "phone":
-
-            phone = normalize(text)
-
-            phone = re.sub(
-                r"\D",
-                "",
-                phone
-            )
-
-
-            if len(phone) < 10:
-
-                send_message(
-
-                    chat_id,
-
-                    "❌ شماره تماس صحیح نیست.\n"
-                    "لطفاً دوباره وارد کنید:"
-                )
-
-                return
-
-
-            finish_order(
-
-                chat_id,
-
-                state_data["name"],
-
-                phone
-
-            )
-
-            return
-
 
     # =====================================================
     # START
@@ -1103,10 +912,13 @@ def process_message(message):
 
     if text == "/start":
 
-        send_message(
-
+        USER_STATES.pop(
             chat_id,
+            None
+        )
 
+        send_message(
+            chat_id,
             "سلام 👋\n\n"
             "به ربات تولیدی و بازرگانی عباسی خوش آمدید."
         )
@@ -1117,25 +929,24 @@ def process_message(message):
 
         return
 
-
     # =====================================================
     # MAIN MENU
     # =====================================================
 
     if text in (
-
-        "📄 دریافت لیست قیمت",
-
+        "🔙 منوی اصلی",
         "منوی اصلی",
-
-        "🔙 منوی اصلی"
-
+        "📄 دریافت لیست قیمت"
     ):
+
+        USER_STATES.pop(
+            chat_id,
+            None
+        )
 
         main_menu(chat_id)
 
         return
-
 
     # =====================================================
     # WEBSITE
@@ -1144,16 +955,12 @@ def process_message(message):
     if text == "🌐 ورود به سایت":
 
         send_message(
-
             chat_id,
-
             "🌐 ورود مستقیم به سایت:\n\n"
             "https://www.tecnoyadakabbasi.ir"
-
         )
 
         return
-
 
     # =====================================================
     # DIRECT CALL
@@ -1162,17 +969,13 @@ def process_message(message):
     if text == "📞 تماس مستقیم":
 
         send_message(
-
             chat_id,
-
             "📞 تماس مستقیم با ما:\n\n"
             "tel:09377700031\n\n"
             "شماره تماس: ۰۹۳۷۷۷۰۰۰۳۱"
-
         )
 
         return
-
 
     # =====================================================
     # SEARCH BUTTON
@@ -1180,33 +983,35 @@ def process_message(message):
 
     if text == "🔎 جستجوی کالا":
 
+        USER_STATES[chat_id] = {
+            "state": "search"
+        }
+
         send_message(
-
             chat_id,
-
             "🔎 کد یا نام کالا را ارسال کنید.\n\n"
-
             "مثال:\n"
             "100158\n\n"
-
             "یا:\n"
             "کابل دنا"
-
         )
 
         return
 
-
     # =====================================================
-    # SHOW CART
+    # CART BUTTON
     # =====================================================
 
     if text == "🛒 سبد خرید":
 
+        USER_STATES.pop(
+            chat_id,
+            None
+        )
+
         show_cart(chat_id)
 
         return
-
 
     # =====================================================
     # CLEAR CART
@@ -1218,9 +1023,8 @@ def process_message(message):
 
         return
 
-
     # =====================================================
-    # START ORDER
+    # ORDER BUTTON
     # =====================================================
 
     if text == "🧾 ثبت سفارش":
@@ -1229,6 +1033,191 @@ def process_message(message):
 
         return
 
+    # =====================================================
+    # ADD PRODUCT BUTTON
+    # =====================================================
+    # این بخش عمداً قبل از جستجوی عمومی قرار گرفته است.
+
+    if text == "➕ افزودن به سبد":
+
+        state_data = USER_STATES.get(
+            chat_id
+        )
+
+        if not state_data:
+
+            send_message(
+                chat_id,
+                "❌ ابتدا یک کالا را جستجو کنید."
+            )
+
+            return
+
+        item = state_data.get(
+            "item"
+        )
+
+        if not item:
+
+            send_message(
+                chat_id,
+                "❌ کالا پیدا نشد."
+            )
+
+            return
+
+        USER_STATES[chat_id] = {
+
+            "state": "quantity",
+
+            "item": item
+
+        }
+
+        send_message(
+            chat_id,
+            "🔢 تعداد مورد نظر را وارد کنید:\n\n"
+            "مثلاً: 2"
+        )
+
+        return
+
+    # =====================================================
+    # ORDER STATES
+    # =====================================================
+
+    state_data = USER_STATES.get(
+        chat_id
+    )
+
+    if state_data:
+
+        state = state_data.get(
+            "state"
+        )
+
+        # -----------------------------------------------
+        # NAME
+        # -----------------------------------------------
+
+        if state == "name":
+
+            if not text:
+
+                send_message(
+                    chat_id,
+                    "❌ نام نمی‌تواند خالی باشد."
+                )
+
+                return
+
+            state_data["name"] = text
+
+            state_data["state"] = "phone"
+
+            send_message(
+                chat_id,
+                "📞 لطفاً شماره تماس خود را وارد کنید:"
+            )
+
+            return
+
+        # -----------------------------------------------
+        # PHONE
+        # -----------------------------------------------
+
+        if state == "phone":
+
+            phone = normalize(text)
+
+            phone = re.sub(
+                r"\D",
+                "",
+                phone
+            )
+
+            if len(phone) < 10:
+
+                send_message(
+                    chat_id,
+                    "❌ شماره تماس صحیح نیست.\n"
+                    "لطفاً دوباره وارد کنید:"
+                )
+
+                return
+
+            finish_order(
+                chat_id,
+                state_data["name"],
+                phone
+            )
+
+            return
+
+        # -----------------------------------------------
+        # QUANTITY
+        # -----------------------------------------------
+
+        if state == "quantity":
+
+            if not text.isdigit():
+
+                send_message(
+                    chat_id,
+                    "❌ تعداد باید یک عدد باشد.\n"
+                    "مثلاً: 2"
+                )
+
+                return
+
+            quantity = int(text)
+
+            if quantity <= 0:
+
+                send_message(
+                    chat_id,
+                    "❌ تعداد باید بیشتر از صفر باشد."
+                )
+
+                return
+
+            item = state_data.get(
+                "item"
+            )
+
+            if not item:
+
+                send_message(
+                    chat_id,
+                    "❌ اطلاعات کالا پیدا نشد."
+                )
+
+                USER_STATES.pop(
+                    chat_id,
+                    None
+                )
+
+                return
+
+            add_to_cart(
+                chat_id,
+                item,
+                quantity
+            )
+
+            USER_STATES.pop(
+                chat_id,
+                None
+            )
+
+            send_message(
+                chat_id,
+                "✅ کالا با موفقیت به سبد خرید اضافه شد."
+            )
+
+            show_cart(chat_id)
+
+            return
 
     # =====================================================
     # PDF
@@ -1236,14 +1225,16 @@ def process_message(message):
 
     if text in PDF_GROUPS:
 
+        USER_STATES.pop(
+            chat_id,
+            None
+        )
+
         group = PDF_GROUPS[text]
 
         send_message(
-
             chat_id,
-
             "⏳ در حال آماده‌سازی فایل PDF..."
-
         )
 
         pdf_path = find_pdf(group)
@@ -1251,56 +1242,36 @@ def process_message(message):
         if not pdf_path:
 
             send_message(
-
                 chat_id,
-
                 "❌ فایل PDF این گروه پیدا نشد."
-
             )
 
             return
 
-
         response = send_pdf(
-
             chat_id,
-
             pdf_path,
-
             f"📄 لیست قیمت {group}"
-
         )
-
 
         try:
 
             if (
-
                 response is not None
-
-                and
-
-                response.json().get("ok")
-
+                and response.json().get("ok")
             ):
 
                 return
 
         except Exception:
-
             pass
 
-
         send_message(
-
             chat_id,
-
             "❌ ارسال فایل PDF انجام نشد."
-
         )
 
         return
-
 
     # =====================================================
     # SEARCH
@@ -1308,43 +1279,48 @@ def process_message(message):
 
     if text:
 
-        send_message(
-
+        USER_STATES.pop(
             chat_id,
-
-            "🔎 در حال جستجوی کامل..."
-
+            None
         )
 
+        send_message(
+            chat_id,
+            "🔎 در حال جستجوی کامل..."
+        )
 
-        results = search_excel(text)
-
+        results = search_excel(
+            text
+        )
 
         if not results:
 
             send_message(
-
                 chat_id,
-
                 "❌ کالایی با این کد یا نام پیدا نشد."
-
             )
 
             return
 
-
-        # نتیجه جستجو
         send_results(
             chat_id,
             results
         )
 
+        # اگر فقط یک کالا پیدا شد،
+        # دکمه افزودن به سبد نشان داده می‌شود.
 
-        # اگر فقط یک نتیجه بود،
-        # امکان افزودن به سبد
         if len(results) == 1:
 
             item = results[0]
+
+            USER_STATES[chat_id] = {
+
+                "state": "add_product",
+
+                "item": item
+
+            }
 
             keyboard = [
 
@@ -1356,160 +1332,13 @@ def process_message(message):
 
             ]
 
-            # ذخیره نتیجه برای کاربر
-            USER_STATES[chat_id] = {
-
-                "state": "add_product",
-
-                "item": item
-
-            }
-
-
             send_message(
-
                 chat_id,
-
-                "📦 این کالا را می‌خواهید به سبد اضافه کنید؟",
-
+                "📦 آیا این کالا را به سبد خرید اضافه می‌کنید؟",
                 keyboard
-
             )
 
         return
-
-
-    # =====================================================
-    # ADD PRODUCT
-    # =====================================================
-
-    if text == "➕ افزودن به سبد":
-
-        state_data = USER_STATES.get(
-            chat_id
-        )
-
-        if not state_data:
-
-            send_message(
-
-                chat_id,
-
-                "❌ ابتدا یک کالا را جستجو کنید."
-            )
-
-            return
-
-
-        item = state_data.get(
-            "item"
-        )
-
-
-        if not item:
-
-            send_message(
-
-                chat_id,
-
-                "❌ کالا پیدا نشد."
-            )
-
-            return
-
-
-        USER_STATES[chat_id] = {
-
-            "state": "quantity",
-
-            "item": item
-
-        }
-
-
-        send_message(
-
-            chat_id,
-
-            "🔢 تعداد مورد نظر را وارد کنید:\n\n"
-            "مثلاً: 2"
-        )
-
-        return
-
-
-    # =====================================================
-    # QUANTITY
-    # =====================================================
-
-    state_data = USER_STATES.get(
-        chat_id
-    )
-
-
-    if state_data:
-
-        if state_data.get("state") == "quantity":
-
-            if not text.isdigit():
-
-                send_message(
-
-                    chat_id,
-
-                    "❌ تعداد باید یک عدد باشد.\n"
-                    "مثلاً: 2"
-                )
-
-                return
-
-
-            quantity = int(text)
-
-
-            if quantity <= 0:
-
-                send_message(
-
-                    chat_id,
-
-                    "❌ تعداد باید بیشتر از صفر باشد."
-                )
-
-                return
-
-
-            item = state_data["item"]
-
-
-            add_to_cart(
-
-                chat_id,
-
-                item,
-
-                quantity
-
-            )
-
-
-            USER_STATES.pop(
-                chat_id,
-                None
-            )
-
-
-            send_message(
-
-                chat_id,
-
-                "✅ کالا به سبد خرید اضافه شد."
-            )
-
-
-            show_cart(chat_id)
-
-            return
 
 
 # =========================================================
@@ -1540,7 +1369,6 @@ def bot_loop():
         "======================================"
     )
 
-
     while True:
 
         try:
@@ -1550,17 +1378,13 @@ def bot_loop():
                 f"{BASE_URL}/getUpdates",
 
                 params={
-
                     "offset": offset,
-
                     "timeout": 30
-
                 },
 
                 timeout=45
 
             )
-
 
             if response.status_code != 200:
 
@@ -1573,9 +1397,7 @@ def bot_loop():
 
                 continue
 
-
             data = response.json()
-
 
             if not data.get("ok"):
 
@@ -1588,7 +1410,6 @@ def bot_loop():
 
                 continue
 
-
             for update in data.get(
                 "result",
                 []
@@ -1600,15 +1421,14 @@ def bot_loop():
                         "update_id",
                         offset
                     )
+
                     + 1
 
                 )
 
-
                 message = update.get(
                     "message"
                 )
-
 
                 if message:
 
@@ -1624,7 +1444,6 @@ def bot_loop():
                             "PROCESS ERROR:",
                             e
                         )
-
 
         except Exception as e:
 
@@ -1657,27 +1476,18 @@ def home():
 if __name__ == "__main__":
 
     threading.Thread(
-
         target=bot_loop,
-
         daemon=True
-
     ).start()
 
-
     port = int(
-
         os.environ.get(
             "PORT",
             10000
         )
     )
 
-
     app.run(
-
         host="0.0.0.0",
-
         port=port
-
     )
